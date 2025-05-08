@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  node-app:
+    build: .
+    ports:
+      - "8000:3002"        # host:container  (localhost:8080 → container:3002)
+    environment:
+      - NODE_ENV=production
+      - PORT=3002          # your app can read this if needed
+    restart: unless-stopped
