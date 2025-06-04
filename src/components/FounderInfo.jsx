@@ -1,4 +1,3 @@
-// src/components/FounderInfo.jsx
 import React from "react";
 
 function FounderInfo({

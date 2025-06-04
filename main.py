@@ -1,4 +1,3 @@
-# main.py
 import sys
 import json
 from crewai import Crew, Task, Process

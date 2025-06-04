@@ -1,4 +1,3 @@
-// src/components/CompanyLogo.jsx
 import React from 'react';
 
 function CompanyLogo() {

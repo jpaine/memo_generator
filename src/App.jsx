@@ -7,7 +7,7 @@ import FounderInfo from "./components/FounderInfo";
 import MemorandumDisplay from "./components/MemorandumDisplay";
 import LoadingIndicator from "./components/LoadingIndicator";
 import ErrorMessage from "./components/ErrorMessage";
-import UrlInput from "./components/UrlInput";
+import MultiUrlInput from "./components/MultiUrlInput";
 import CompanyLogo from './components/CompanyLogo';
 import EmailInput from "./components/EmailInput";
 
@@ -17,8 +17,7 @@ function App() {
   const [founderCount, setFounderCount] = useState(1);
   const maxFounders = 3;
   const [memorandumContent, setMemorandumContent] = useState("");
-  const [documents, setDocuments] = useState(null);
-  const [ocrDocuments, setOcrDocuments] = useState(null);
+  const [documents, setDocuments] = useState({ regular: [], ocr: [] });
   const [currentRound, setCurrentRound] = useState("");
   const [proposedValuation, setProposedValuation] = useState("");
   const [valuationDate, setValuationDate] = useState("");
@@ -31,7 +30,7 @@ function App() {
   const [traceId, setTraceId] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
-  const [url, setUrl] = useState("");
+  const [urls, setUrls] = useState([]);
 
   // Handle form submission
   const handleSubmit = async (e) => {
@@ -50,26 +49,26 @@ function App() {
     }
 
     // Check documents
-    const hasDocuments = documents && documents.length > 0;
-    const hasOcrDocuments = ocrDocuments && ocrDocuments.length > 0;
+    const hasDocuments = documents.regular && documents.regular.length > 0;
+    const hasOcrDocuments = documents.ocr && documents.ocr.length > 0;
 
     if (!hasDocuments && !hasOcrDocuments) {
-      setError("Please upload at least one document (either regular or OCR document).");
+      setError("Please upload at least one document.");
       return;
     }
 
     const formData = new FormData();
     formData.append("email", email);
 
-    if (documents) {
-      for (let i = 0; i < documents.length; i++) {
-        formData.append("documents", documents[i]);
+    if (documents.regular) {
+      for (let i = 0; i < documents.regular.length; i++) {
+        formData.append("documents", documents.regular[i]);
       }
     }
 
-    if (ocrDocuments) {
-      for (let i = 0; i < ocrDocuments.length; i++) {
-        formData.append("ocrDocuments", ocrDocuments[i]);
+    if (documents.ocr) {
+      for (let i = 0; i < documents.ocr.length; i++) {
+        formData.append("ocrDocuments", documents.ocr[i]);
       }
     }
 
@@ -79,7 +78,11 @@ function App() {
     linkedInUrls.forEach((url) => {
       formData.append("linkedInUrls[]", url);
     });
-    formData.append("url", url);
+    
+    // Send multiple URLs
+    urls.forEach((urlObj) => {
+      formData.append("urls[]", JSON.stringify(urlObj));
+    });
 
     setLoading(true);
     setResult("");
@@ -196,20 +199,20 @@ function App() {
 
   return (
     <div className="app-container">
-      <h1 className="app-title">Flybridge Investment Memorandum Generator</h1>
+      <h1 className="app-title">Golden Gate Investment Memorandum Generator</h1>
       <div className="content-wrapper">
         <CompanyLogo />
         <div className="description">
           <br /><br />
           <p className="intro-text">
             <strong>
-              Flybridge is an early stage venture capital fund investing in our AI powered future. 
+              Golden Gate is a global venture capital team powering tech & innovation from Singapore
               If you want to learn more you can visit our{' '}
               <a 
-                href="https://www.flybridge.com/" 
+                href="https://www.goldengate.vc/" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="flybridge-link"
+                className="Golden-Gate-link"
               >
                 website
               </a>
@@ -220,48 +223,35 @@ function App() {
             <strong>Tool Overview</strong>
           </p>
           <p>
-            The Flybridge memo generator is an AI powered platform designed to quickly transform
+            The Golden Gate memo generator is an AI powered platform designed to quickly transform
             decks, business plans, and call notes into a first-draft VC
             investment memo. For Founders, we hope this will provide insights
             into how a VC firm might look at your business and streamline the
             process of presenting your company to investors by generating a
             draft memorandum based on the provided context. We recommend giving
             the tool as much context as possible to get the most accurate and
-            helpful output (Limit to o1 context window token limits). One of the best practices is to record your pitch
+            helpful output (Limit to chatgpt context window token limits). One of the best practices is to record your pitch
             and upload the text transcript along with any supporting materials.
           </p>
           <p>
             <strong>Limitations</strong>
           </p>
           <p>
-            The memo generator produces a strong initial draft addressing key investor considerations. However, it serves as a starting point rather than a fully polished memorandum, as human input is essential to refine nuance and exercise judgment. Additionally, the tool's reasoning is influenced by the limitations of OpenAI's o1 model and may reflect biases present in the input data. It is intended for informational purposes only. By submitting your data, you acknowledge that it may be reviewed by a Flybridge team member but will not be shared externally.
+            The memo generator produces a strong initial draft addressing key investor considerations. However, it serves as a starting point rather than a fully polished memorandum, as human input is essential to refine nuance and exercise judgment. Additionally, the tool's reasoning is influenced by the limitations of OpenAI's o1 model and may reflect biases present in the input data. It is intended for informational purposes only. By submitting your data, you acknowledge that it may be reviewed by a Golden Gate team member but will not be shared externally.
           </p>
           <p>
             <strong>Disclaimer</strong>
           </p>
           <p>
-            By submitting your data, you acknowledge that it may be reviewed by a Flybridge team member but will not be shared externally.
+            By submitting your data, you acknowledge that it may be reviewed by a Golden Gate team member but will not be shared externally.
           </p>
            <br /><br />
-            <p>
-              You can find the Github repo and see source code in this{' '}
-              <a 
-                href="https://github.com/dforwardfeed/memo_generator" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flybridge-link"
-              >
-                link
-              </a>
-            </p>
         </div>
         <form onSubmit={handleSubmit} className="form-container">
           <EmailInput email={email} setEmail={setEmail} />
           <FileUpload
             documents={documents}
             setDocuments={handleDocumentsChange}
-            ocrDocuments={ocrDocuments}
-            setOcrDocuments={handleOcrDocumentsChange}
           />
           <DealTerms
             currentRound={currentRound}
@@ -278,7 +268,7 @@ function App() {
             linkedInUrls={linkedInUrls}
             setLinkedInUrls={setLinkedInUrls}
           />
-          <UrlInput url={url} setUrl={setUrl} />
+          <MultiUrlInput urls={urls} setUrls={setUrls} />
           <button type="submit" className="btn btn-primary" disabled={loading}>
             {loading ? "Generating..." : "Generate Memorandum"}
           </button>

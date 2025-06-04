@@ -6,7 +6,7 @@ const mammoth = require("mammoth");
 const OpenAI = require("openai");
 const { PORTKEY_GATEWAY_URL, createHeaders } = require("portkey-ai");
 const axios = require("axios");
-const cheerio = require("cheerio"); 
+const cheerio = require("cheerio");
 const fs = require("fs").promises;
 const path = require("path");
 const HTMLtoDOCX = require("html-to-docx");
@@ -19,6 +19,268 @@ const { uploadToBlob, deleteFromBlob } = require('./blobStorage');
 const Portkey = require("portkey-ai").default;
 const portkey = new Portkey({ apiKey: process.env.PORTKEY_API_KEY });
 const {Storage} = require('@google-cloud/storage');
+
+// Context Management System
+class ContextManager {
+  constructor() {
+    this.useSupermemory = process.env.USE_SUPERMEMORY === 'true';
+    this.supermemoryApiKey = process.env.SUPERMEMORY_API_KEY;
+    this.supermemoryBaseUrl = process.env.SUPERMEMORY_BASE_URL || 'https://api.supermemory.ai/v3';
+    this.maxTokens = 120000; // Conservative limit for GPT-4o
+    this.chunkSize = 8000; // Size for each context chunk
+  }
+
+  async storeContext(content, sessionId, metadata = {}) {
+    if (!this.useSupermemory || !this.supermemoryApiKey) {
+      console.warn('Supermemory not configured, using in-memory context management');
+      return this.storeInMemory(content, sessionId, metadata);
+    }
+
+    try {
+      const response = await fetch(`${this.supermemoryBaseUrl}/memories`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.supermemoryApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content,
+          sessionId,
+          metadata: {
+            ...metadata,
+            timestamp: new Date().toISOString(),
+            type: 'memo_generation'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Supermemory API error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('Successfully stored context in Supermemory');
+      return result;
+    } catch (error) {
+      console.error('Error storing context in Supermemory:', error);
+      return this.storeInMemory(content, sessionId, metadata);
+    }
+  }
+
+  async manageTokenLimit(content, sessionId) {
+    const tokenCount = this.estimateTokens(content);
+    
+    if (tokenCount <= this.maxTokens) {
+      return content;
+    }
+
+    console.log(`Content exceeds token limit (${tokenCount} > ${this.maxTokens}), using context management`);
+
+    // Store full content for future reference
+    await this.storeContext(content, sessionId, {
+      tokenCount,
+      fullContent: true
+    });
+
+    // Extract key information and create summarized version
+    const chunks = this.chunkContent(content);
+    const keyChunks = await this.selectKeyChunks(chunks, sessionId);
+    
+    return keyChunks.join('\n\n');
+  }
+
+  chunkContent(content) {
+    const words = content.split(' ');
+    const chunks = [];
+    
+    for (let i = 0; i < words.length; i += this.chunkSize) {
+      chunks.push(words.slice(i, i + this.chunkSize).join(' '));
+    }
+    
+    return chunks;
+  }
+
+  async selectKeyChunks(chunks, sessionId) {
+    const totalChunks = chunks.length;
+    const keepCount = Math.min(6, totalChunks);
+    
+    if (totalChunks <= keepCount) {
+      return chunks;
+    }
+
+    const selectedChunks = [
+      ...chunks.slice(0, Math.ceil(keepCount / 2)),
+      ...chunks.slice(-Math.floor(keepCount / 2))
+    ];
+
+    // Store non-selected chunks for potential future retrieval
+    for (let i = Math.ceil(keepCount / 2); i < totalChunks - Math.floor(keepCount / 2); i++) {
+      await this.storeContext(chunks[i], sessionId, {
+        chunkIndex: i,
+        type: 'excluded_chunk'
+      });
+    }
+
+    return selectedChunks;
+  }
+
+  estimateTokens(text) {
+    // Rough estimation: 1 token ≈ 4 characters for English text
+    return Math.ceil(text.length / 4);
+  }
+
+  storeInMemory(content, sessionId, metadata) {
+    if (!global.memoryStore) {
+      global.memoryStore = new Map();
+    }
+    
+    if (!global.memoryStore.has(sessionId)) {
+      global.memoryStore.set(sessionId, []);
+    }
+    
+    global.memoryStore.get(sessionId).push({
+      content,
+      metadata,
+      timestamp: new Date().toISOString(),
+      id: crypto.randomUUID()
+    });
+    
+    return { success: true, storage: 'memory' };
+  }
+}
+
+const contextManager = new ContextManager();
+
+// Context Management System
+class ContextManager {
+  constructor() {
+    this.useSupermemory = process.env.USE_SUPERMEMORY === 'true';
+    this.supermemoryApiKey = process.env.SUPERMEMORY_API_KEY;
+    this.supermemoryBaseUrl = process.env.SUPERMEMORY_BASE_URL || 'https://api.supermemory.ai/v3';
+    this.maxTokens = 120000; // Conservative limit for GPT-4o
+    this.chunkSize = 8000; // Size for each context chunk
+  }
+
+  async storeContext(content, sessionId, metadata = {}) {
+    if (!this.useSupermemory || !this.supermemoryApiKey) {
+      console.warn('Supermemory not configured, using in-memory context management');
+      return this.storeInMemory(content, sessionId, metadata);
+    }
+
+    try {
+      const response = await fetch(`${this.supermemoryBaseUrl}/memories`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.supermemoryApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content,
+          sessionId,
+          metadata: {
+            ...metadata,
+            timestamp: new Date().toISOString(),
+            type: 'memo_generation'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Supermemory API error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('Successfully stored context in Supermemory');
+      return result;
+    } catch (error) {
+      console.error('Error storing context in Supermemory:', error);
+      return this.storeInMemory(content, sessionId, metadata);
+    }
+  }
+
+  async manageTokenLimit(content, sessionId) {
+    const tokenCount = this.estimateTokens(content);
+
+    if (tokenCount <= this.maxTokens) {
+      return content;
+    }
+
+    console.log(`Content exceeds token limit (${tokenCount} > ${this.maxTokens}), using context management`);
+
+    // Store full content for future reference
+    await this.storeContext(content, sessionId, {
+      tokenCount,
+      fullContent: true
+    });
+
+    // Extract key information and create summarized version
+    const chunks = this.chunkContent(content);
+    const keyChunks = await this.selectKeyChunks(chunks, sessionId);
+
+    return keyChunks.join('\n\n');
+  }
+
+  chunkContent(content) {
+    const words = content.split(' ');
+    const chunks = [];
+
+    for (let i = 0; i < words.length; i += this.chunkSize) {
+      chunks.push(words.slice(i, i + this.chunkSize).join(' '));
+    }
+
+    return chunks;
+  }
+
+  async selectKeyChunks(chunks, sessionId) {
+    const totalChunks = chunks.length;
+    const keepCount = Math.min(6, totalChunks);
+
+    if (totalChunks <= keepCount) {
+      return chunks;
+    }
+
+    const selectedChunks = [
+      ...chunks.slice(0, Math.ceil(keepCount / 2)),
+      ...chunks.slice(-Math.floor(keepCount / 2))
+    ];
+
+    // Store non-selected chunks for potential future retrieval
+    for (let i = Math.ceil(keepCount / 2); i < totalChunks - Math.floor(keepCount / 2); i++) {
+      await this.storeContext(chunks[i], sessionId, {
+        chunkIndex: i,
+        type: 'excluded_chunk'
+      });
+    }
+
+    return selectedChunks;
+  }
+
+  estimateTokens(text) {
+    // Rough estimation: 1 token ≈ 4 characters for English text
+    return Math.ceil(text.length / 4);
+  }
+
+  storeInMemory(content, sessionId, metadata) {
+    if (!global.memoryStore) {
+      global.memoryStore = new Map();
+    }
+
+    if (!global.memoryStore.has(sessionId)) {
+      global.memoryStore.set(sessionId, []);
+    }
+
+    global.memoryStore.get(sessionId).push({
+      content,
+      metadata,
+      timestamp: new Date().toISOString(),
+      id: crypto.randomUUID()
+    });
+
+    return { success: true, storage: 'memory' };
+  }
+}
+
+const contextManager = new ContextManager();
 const storage = new Storage({
   projectId: process.env.GOOGLE_CLOUD_PROJECT_ID
 });
@@ -26,7 +288,7 @@ const storage = new Storage({
 const app = express();
 app.use(cors());
 app.use(express.json());
-const upload = multer({ 
+const upload = multer({
   dest: "/tmp/uploads/",
   limits: {
     fileSize: 40 * 1024 * 1024, // 40MB limit per file
@@ -117,7 +379,7 @@ async function summarizeMarketOpportunity(text, traceId, spanId) {
         {
           role: "user",
           content: `Based on the following company description, provide a one-line summary of the market opportunity the company is focusing on. The output should:
-1. Be a single, concise phrase, no longer than 20 words. 
+1. Be a single, concise phrase, no longer than 20 words.
 2. Be specific by clearly describing the solution and the target market or product space. Avoid general terms like 'AI market' or 'technology sector'.
 3. Avoid introductory phrases like "The company is addressing..." or "The market is related to.
 4. Include relevant target market details (e.g., "healthcare providers" or "SME e-commerce businesses") only if they are crucial to the market focus. If the description suggests a broader focus, exclude unnecessary specifics.
@@ -135,7 +397,7 @@ async function summarizeMarketOpportunity(text, traceId, spanId) {
 
 Company description: ${text}
 
-Output format: 
+Output format:
 - [Specific market opportunity as one sentence]`,
         },
       ],
@@ -353,7 +615,7 @@ async function extractContentFromUrl(url) {
 
 // File upload and processing endpoint
 app.post("/api/upload", upload.fields([
-  { name: "documents" }, 
+  { name: "documents" },
   { name: "ocrDocuments" }
 ]), (error, req, res, next) => {
   if (error instanceof multer.MulterError) {
@@ -383,7 +645,6 @@ app.post("/api/upload", upload.fields([
       currentRound,
       proposedValuation,
       valuationDate,
-      url, // Extracting 'url'
     } = req.body;
 
     // Handle 'linkedInUrls' as an array
@@ -393,19 +654,31 @@ app.post("/api/upload", upload.fields([
         ? [req.body.linkedInUrls]
         : [];
 
+    // Handle multiple URLs
+    const urls = req.body['urls[]'] 
+      ? (Array.isArray(req.body['urls[]']) ? req.body['urls[]'] : [req.body['urls[]']])
+        .map(urlStr => {
+          try {
+            return typeof urlStr === 'string' ? JSON.parse(urlStr) : urlStr;
+          } catch {
+            return { url: urlStr, type: 'other' };
+          }
+        })
+      : [];
+
     console.log("Received data:", {
       email,
       currentRound,
       proposedValuation,
       valuationDate,
-      url,
+      urls,
       linkedInUrls,
     });
 
     // Process OCR documents first
     let extractedText = "";
     const uploadedBlobs = [];
-    
+
     if (ocrFiles.length > 0) {
       console.log(`Processing ${ocrFiles.length} OCR documents`);
       for (const file of ocrFiles) {
@@ -447,11 +720,13 @@ app.post("/api/upload", upload.fields([
       }
     }
 
-    // Extract content from URL if provided
-    if (url) { // Now 'url' is defined
-      console.log("Extracting content from URL:", url);
-      const urlContent = await extractContentFromUrl(url);
-      extractedText += "\n\nContent from provided URL:\n" + urlContent;
+    // Extract content from URLs if provided
+    if (urls && urls.length > 0) {
+      console.log("Extracting content from multiple URLs:", urls);
+      for (const urlObj of urls) {
+        const urlContent = await extractContentFromUrl(urlObj.url);
+        extractedText += `\n\nContent from ${urlObj.type} URL (${urlObj.url}):\n${urlContent}`;
+      }
     }
 
     // Final moderation check after all content is combined
@@ -497,7 +772,7 @@ app.post("/api/upload", upload.fields([
     );
 
     // Combine extracted text
-    const combinedText = `
+    let combinedText = `
       Email: ${email || "Not provided"}
       Current Deal Terms:
       Current Funding Round: ${currentRound || "Not provided"}
@@ -508,6 +783,9 @@ app.post("/api/upload", upload.fields([
       Founder Information from LinkedIn:
       ${founderData.filter((data) => data !== null).join("\n\n")}
     `;
+
+    // Apply context management using our new system
+    combinedText = await contextManager.manageTokenLimit(combinedText, traceId);
 
     // Summarize market opportunity
     const marketOpportunitySpanId = crypto.randomUUID();
@@ -564,7 +842,7 @@ app.post("/api/upload", upload.fields([
 
     1. <h2>Executive Summary</h2>
        - Include deal terms and analysis date
-    
+
     2. <h2>Introduction</h2>
        - Business Summary: Brief overview of how the company aligns with the fund's focus and highlights any unique aspects.
        - Value Proposition: Key value offering and what differentiates it from others.
@@ -613,20 +891,20 @@ app.post("/api/upload", upload.fields([
        - Potential Exit Strategies: Explore M&A and IPO opportunities, identifying potential buyers or partners.
        - Comparable Exits: Provide examples of similar companies' exits for comparison.
        - Timing and Valuation: Discuss expected exit timeline and valuation expectations.
-    
+
     12. <h2>Use of Funds</h2>
        - Strategic Objectives: Explain how funds will be allocated to achieve strategic goals, with a budget breakdown.
-    
+
     13. <h2>Conclusion</h2>
        - Investment Thesis: Summarise why the company is a compelling investment, considering strategic alignment and growth potential.
        - Final Recommendations: Offer recommendations for the investment committee, along with any considerations.
-    
+
     14. <h2>Follow-up- questions</h2>
         - Generate 4-7 specific follow-up questions to ask the founding team. These questions should address areas where we lack sufficient information or highlight critical risks that could impact the company's success or failure. The questions should be tailored to the specific business, avoiding generic queries, and should help elevate the discussion by diving deeper into the key topics we already have insights on. They should be thoughtful, relevant, and designed to lead to meaningful conversations with the founders.
-    
+
     15. <h2>Appendix</h2>
        - Additional Data: Include supporting charts, graphs, or data for deeper insights.`,
-        
+
         },
       ],
     }, {

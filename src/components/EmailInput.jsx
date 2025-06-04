@@ -1,4 +1,3 @@
-// src/components/EmailInput.jsx
 import React from "react";
 
 function EmailInput({ email, setEmail }) {

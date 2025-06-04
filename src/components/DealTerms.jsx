@@ -1,4 +1,3 @@
-// src/components/DealTerms.jsx
 import React from "react";
 
 function DealTerms({

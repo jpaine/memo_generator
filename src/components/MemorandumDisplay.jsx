@@ -1,4 +1,3 @@
-// src/components/MemorandumDisplay.jsx
 import React from "react";
 
 function MemorandumDisplay({
