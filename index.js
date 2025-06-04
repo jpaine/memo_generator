@@ -15,6 +15,7 @@ const vision = require("@google-cloud/vision");
 const { spawn } = require("child_process");
 const cors = require("cors");
 const crypto = require("crypto");
+const { uploadToBlob, deleteFromBlob } = require('./blobStorage');
 const Portkey = require("portkey-ai").default;
 const portkey = new Portkey({ apiKey: process.env.PORTKEY_API_KEY });
 const {Storage} = require('@google-cloud/storage');
@@ -25,7 +26,13 @@ const storage = new Storage({
 const app = express();
 app.use(cors());
 app.use(express.json());
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ 
+  dest: "/tmp/uploads/",
+  limits: {
+    fileSize: 40 * 1024 * 1024, // 40MB limit per file
+    files: 5 // Reduce max files
+  }
+});
 
 // Serve static files from the React app build directory
 app.use(express.static(path.join(__dirname, "dist")));
@@ -345,10 +352,24 @@ async function extractContentFromUrl(url) {
 }
 
 // File upload and processing endpoint
-app.post("/upload", upload.fields([
+app.post("/api/upload", upload.fields([
   { name: "documents" }, 
   { name: "ocrDocuments" }
-]), async (req, res) => {
+]), (error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        error: "File too large. Maximum size is 40MB per file."
+      });
+    }
+    if (error.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({
+        error: "Too many files. Maximum is 5 files."
+      });
+    }
+  }
+  next(error);
+}, async (req, res) => {
   const traceId = crypto.randomUUID();
   console.log(`Starting memo generation process with trace ID: ${traceId}`);
 
@@ -383,9 +404,17 @@ app.post("/upload", upload.fields([
 
     // Process OCR documents first
     let extractedText = "";
+    const uploadedBlobs = [];
+    
     if (ocrFiles.length > 0) {
       console.log(`Processing ${ocrFiles.length} OCR documents`);
-      extractedText = await processOCRDocuments(ocrFiles);
+      for (const file of ocrFiles) {
+        const fileBuffer = await fs.readFile(file.path);
+        const blob = await uploadToBlob(fileBuffer, file.originalname);
+        uploadedBlobs.push(blob.url);
+        await fs.unlink(file.path);
+      }
+      extractedText = await processOCRDocumentsFromBlob(uploadedBlobs);
     }
 
     // Process regular documents
@@ -399,6 +428,11 @@ app.post("/upload", upload.fields([
         extractedText += result.value + "\n\n";
       }
       await fs.unlink(file.path);
+    }
+
+    // Cleanup uploaded blobs after processing
+    for (const blobUrl of uploadedBlobs) {
+      await deleteFromBlob(blobUrl);
     }
 
     // Early moderation check after initial document processing
@@ -514,8 +548,13 @@ app.post("/upload", upload.fields([
     Analysis Date: ${valuationDate || "Not provided"}
 
     Market Analysis Result:
+    Industry Information: ${marketAnalysisResult.industry_analysis || "Not available"}
     Market Sizing Information: ${marketAnalysisResult.market_analysis || "Not available"}
     Competitor Analysis: ${marketAnalysisResult.competitor_analysis || "Not available"}
+    Timing Analysis: ${marketAnalysisResult.timing_analysis || "Not available"}
+    Regional Analysis: ${marketAnalysisResult.regional_analysis || "Not available"}
+    Investment Decision: ${marketAnalysisResult.decision || "Not available"}
+
 
     Additional Context: ${combinedText}
 
@@ -525,62 +564,69 @@ app.post("/upload", upload.fields([
 
     1. <h2>Executive Summary</h2>
        - Include deal terms and analysis date
-       - Provide a concise summary of the company's offering
-       - Explain why this investment could be attractive for Flybridge. Be specific, highlighting the "why now" and "why this team in this space." Keep this part concise with the main specific points.
+    
+    2. <h2>Introduction</h2>
+       - Business Summary: Brief overview of how the company aligns with the fund's focus and highlights any unique aspects.
+       - Value Proposition: Key value offering and what differentiates it from others.
 
-    2. <h2>Market Opportunity and Sizing</h2>
-       - Explain the current unattended area or problems companies face. Mention any tailwinds making this space more attractive at this moment. Keep the "why now" reasons to 2-3 points.
-       - Provide a detailed market sizing calculation using as much data as given in the context. Include:
-         - Total Addressable Market (TAM) and the CAGR or expected growth with reason, making sure you detail to what market you are reffering to 
-         - For each number included (like market size in billions or growth rate), provide details. Also always provide hyperlink to the URL of sources if available. But ensure it is a real URL that is related to the source.  
+    3. <h2>Market Overview</h2>
+       - Industry Context: Outline the industry's growth potential and relevance to the region.
+       - Customer Segments: Define the primary customer segments targeted by the company.
+       - Market Size: Present market sizes globally, in Southeast Asia, and in the home market (USD). Include CAGR and discuss tailwinds/headwinds with supporting data.
 
-    3. <h2>Competitive Landscape</h2>
-       - Analyze competitors, providing detail descriptions of what they do,. 
-       - If you are given the URL of a competitor include it next to the name as hyperlink. Also if you are given any data on their traction, or total capital raised you must include it, same as recent advances, but only if given on the context. 
+    4. <h2>Competitive Landscape</h2>
+       - Competitors: List key competitors and explain how the company differentiates itself. Include venture capital raised where applicable.
+       - Market Positioning: Describe the company's position and competitive advantage.
+       - Comparable Companies: Highlight global companies with similar business models for context.
+       - Public IPOs and M&A: Note any significant industry IPOs or M&As for benchmarking potential exits.
 
-    4. <h2>Product/Service Description</h2>
-       -- Offer a comprehensive description of the product or services. This section should be very detailed.
-       - Mention what is unique about their approach with good detail.
-       - Explain why it's a good fit for the market.
-       - Provide an in-depth analysis of the AI stack, including:
-         - AI tech strategy and differentiation; be detailed if context is provided.
-         - Include a detailed section on the product roadmap, outlining future products and long-term vision.
-         - Include a section that put's what are going to be the company competitive advantage this section is forward looking, and a a mix of information from input but also thinking through company input what can become in future those competitive advantages.
-
-    5. <h2>Business Model</h2>
-       - Describe the company's revenue streams and pricing strategy.
-       - Analyze the scalability and sustainability of the business model.
+    5. <h2>Product/Solution</h2>
+       - Product Description: Explain the product/service, including technology or innovations. Include screenshots if available.
+       - Problem and Solution: Detail the problem addressed and how the solution tackles it.
+       - User Flow: Describe the user flow and compare/contrast with competitors if relevant.
 
     6. <h2>Team</h2>
-       - Use LinkedIn data if available, usually under "Founder Information from LinkedIn."
-       - Must Include hyperlinks to the founders' LinkedIn profiles if provided. This is a must for this section in case you were given the Linkedin URL of the founder/founder's
-       - Provide detailed backgrounds and relevant experience of key team members.
-       - Provide background on how they came together and entered this space if context is given.
+       - Leadership and Advisors: Introduce key team members and advisors, including links to professional profiles like LinkedIn or GitHub.
+       - Organisation Chart: Provide the current org chart and an ideal chart for the next 12 months, detailing planned expansions.
 
-    7. <h2>Go-to-Market Strategy</h2>
-       - Offer a comprehensive description of the company's go-to-market strategy.
-       - Define the Ideal Customer Profile (ICP).
-       - Describe current traction or pilots, if applicable.
-       - Outline the strategy for user acquisition and growth.
-       - Mention milestones the company has for the next round if data is available.
+    7. <h2>Traction/Metrics</h2>
+       - Current Progress: Highlight milestones, achievements, and growth in users or customers.
+       - Key Metrics: Discuss engagement, retention, product performance, and revenue metrics. Provide benchmarks for context.
 
-    8. <h2>Main Risks</h2>
-       - List and analyze the main 4-6 risks that could lead to the startup's failure, being very specific to the business.
+    8. <h2>Go-to-Market Strategy</h2>
+       - Customer Strategy: Define target segments, positioning, messaging, and pricing strategy.
+       - Sales Strategy: Detail sales channels, processes, and team structure.
+       - Marketing Strategy: Outline advertising, content marketing, and community engagement plans.
+       - Partnerships: Highlight strategic and channel partnerships for market entry or expansion.
+       - Launch Plan: Present the timeline, milestones, and KPIs for success.
 
-    9. <h2>What Can Go Massively Right</h2>
-       - Provide visionary thinking about the most optimistic scenario for the company's future while keeping realistic expectations. Focus on long-term impact and success, highlighting critical assumptions or market conditions necessary for high success.
+    9. <h2>Financial Overview</h2>
+       - Fundraising History: Summarise past funding rounds and current fundraising goals.
+       - Financial Projections: Provide revenue and expense projections, including a profitability timeline.
+       - Financial Health: Include key financial ratios to assess health and performance.
 
-    10. <h2>Tech Evaluation and Scores</h2>
-        - On a scale of 1 to 10, rate their idea, pitch, and approach, considering factors such as technological differentiation, competition, go-to-market strategy, and traction. Provide reasons for each rating.
-        - Critically analyze and evaluate the technical aspects of AI startup pitches. Identify and critique areas where the pitch may fall short, highlight potential risks, and address challenges in implementation and achievement.
-        - Focus on technical feasibility, accuracy, integration, scalability, and other critical areas relevant to AI technology.
-        - Provide detailed critiques of specific technical areas that may be more challenging than initially expected.
-        - Highlight any technical assumptions that may not hold up in real-world scenarios.
-        - Discuss potential pitfalls in proposed AI models, algorithms, data handling, or infrastructure.
-        - Avoid generic comments; focus on providing deep technical insights with clear explanations and justifications.
+    10. <h2>Risk Analysis</h2>
+       - Potential Risks: Identify market, operational, and regulatory risks.
+       - Mitigation Strategies: Discuss strategies for mitigating these risks.
 
-      11. <h2>Follow-up- questions</h2>
-        - Generate 4-7 specific follow-up questions to ask the founding team. These questions should address areas where we lack sufficient information or highlight critical risks that could impact the company's success or failure. The questions should be tailored to the specific business, avoiding generic queries, and should help elevate the discussion by diving deeper into the key topics we already have insights on. They should be thoughtful, relevant, and designed to lead to meaningful conversations with the founders.`,
+    11. <h2>Exit Analysis</h2>
+       - Potential Exit Strategies: Explore M&A and IPO opportunities, identifying potential buyers or partners.
+       - Comparable Exits: Provide examples of similar companies' exits for comparison.
+       - Timing and Valuation: Discuss expected exit timeline and valuation expectations.
+    
+    12. <h2>Use of Funds</h2>
+       - Strategic Objectives: Explain how funds will be allocated to achieve strategic goals, with a budget breakdown.
+    
+    13. <h2>Conclusion</h2>
+       - Investment Thesis: Summarise why the company is a compelling investment, considering strategic alignment and growth potential.
+       - Final Recommendations: Offer recommendations for the investment committee, along with any considerations.
+    
+    14. <h2>Follow-up- questions</h2>
+        - Generate 4-7 specific follow-up questions to ask the founding team. These questions should address areas where we lack sufficient information or highlight critical risks that could impact the company's success or failure. The questions should be tailored to the specific business, avoiding generic queries, and should help elevate the discussion by diving deeper into the key topics we already have insights on. They should be thoughtful, relevant, and designed to lead to meaningful conversations with the founders.
+    
+    15. <h2>Appendix</h2>
+       - Additional Data: Include supporting charts, graphs, or data for deeper insights.`,
+        
         },
       ],
     }, {
@@ -612,7 +658,7 @@ app.post("/upload", upload.fields([
 });
 
 // New download endpoint
-app.post("/download", express.json(), async (req, res) => {
+app.post("/api/download", express.json(), async (req, res) => {
   console.log("Download route hit");
   try {
     const { content } = req.body;
@@ -640,7 +686,7 @@ app.post("/download", express.json(), async (req, res) => {
 });
 
 // Feedback endpoint
-app.post("/feedback", async (req, res) => {
+app.post("/api/feedback", async (req, res) => {
   const { traceId, value } = req.body;
 
   try {
@@ -661,7 +707,7 @@ app.post("/feedback", async (req, res) => {
 });
 
 // Health check route
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.status(200).send('OK');
 });
 

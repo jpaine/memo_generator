@@ -91,7 +91,7 @@ function App() {
     setFeedbackSubmitted(false);
 
     try {
-      const response = await axios.post("/upload", formData, {
+      const response = await axios.post("/api/upload", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
@@ -124,7 +124,7 @@ function App() {
   // Handle feedback submission
   const sendFeedback = async (value) => {
     try {
-      await axios.post("/feedback", {
+      await axios.post("/api/feedback", {
         traceId: traceId,
         value: value,
       });
@@ -139,7 +139,7 @@ function App() {
   // Handle memorandum download
   const handleDownload = async () => {
     try {
-      const response = await fetch("/download", {
+      const response = await fetch("/api/download", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

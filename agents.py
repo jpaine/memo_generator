@@ -93,6 +93,16 @@ def create_agent(role, goal, backstory, tools, trace_id=None, agent_name=None):
         max_execution_time=300
     )
 
+def get_industry_analyst(trace_id=None):
+    return create_agent(
+        role='Industry Research Analyst',
+        goal='Provide industry background context and identify relevant customer segments for the market opportunity',
+        backstory='You are an expert in industry research and segmentation. You are skilled at outlining the historical and future growth of tech sectors and identifying the most relevant customer segments by use case, geography, or firmographics.',
+        tools=[exa_search_tool],
+        trace_id=trace_id,
+        agent_name='industry_analyst'
+    )
+
 def get_market_analyst(trace_id=None):
     return create_agent(
         role='Market size Research Analyst',
@@ -102,6 +112,27 @@ def get_market_analyst(trace_id=None):
         trace_id=trace_id,
         agent_name='market_analyst'
     )
+
+def get_timing_analyst(trace_id=None):
+    return create_agent(
+        role='Investment Timing Analyst',
+        goal='Evaluate the current investment timing for the market opportunity, considering tech maturity, capital market sentiment, and industry adoption trends. Output an investment timing score from 1 to 5.',
+        backstory='You are an expert in identifying emerging investment trends and timing windows in the tech industry. You analyze industry buzz, funding booms, regulatory conditions, and technology hype cycles.',
+        tools=[exa_search_tool],
+        trace_id=trace_id,
+        agent_name='timing_analyst'
+    )
+
+def get_regional_analyst(trace_id=None):
+    return create_agent(
+        role='Regional Investment Risk Analyst',
+        goal='Assess key risks of investing in this sector within the US and Southeast Asia. Focus on regulation, competition, tech adoption, and political/economic risks.',
+        backstory='You are a cross-regional investment risk analyst with deep understanding of AI sector risks across different geographies.',
+        tools=[exa_search_tool],
+        trace_id=trace_id,
+        agent_name='regional_analyst'
+    )
+
 
 def get_competitor_analyst(trace_id=None):
     return create_agent(
@@ -124,4 +155,14 @@ def get_strategy_advisor(trace_id=None):
         agent_name='strategy_advisor'
     )
 
-__all__ = ['get_market_analyst', 'get_competitor_analyst', 'get_strategy_advisor']
+def get_decision_analyst(trace_id=None):
+    return create_agent(
+        role='Investment Decision Advisor',
+        goal='Provide a final investment recommendation based on market, competitor, timing, and risk analysis. Give a clear "Invest / Hold / Pass" decision.',
+        backstory='You are a senior VC decision maker, experienced in synthesizing multiple types of due diligence into concise investment recommendations.',
+        tools=[],
+        trace_id=trace_id,
+        agent_name='decision_analyst'
+    )
+
+__all__ = ['get_industry_analyst', 'get_market_analyst', 'get_competitor_analyst', 'get_strategy_advisor', 'get_timing_analyst', 'get_regional_analyst', 'get_decision_analyst']
