@@ -1,27 +1,12 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "index.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/index.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/dist/$1"
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
     }
   ],
   "functions": {
-    "index.js": {
+    "api/index.js": {
       "maxDuration": 300
     }
   }

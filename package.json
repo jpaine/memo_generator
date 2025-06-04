@@ -4,8 +4,8 @@
   "description": "Investment Memorandum Generator",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "concurrently \"nodemon index.js\" \"vite\"",
+    "start": "node api/index.js",
+    "dev": "concurrently \"nodemon api/index.js\" \"vite\"",
     "build": "vite build",
     "preview": "vite preview",
     "vercel-build": "vite build"

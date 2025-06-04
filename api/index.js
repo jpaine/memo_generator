@@ -35,11 +35,11 @@ const upload = multer({
 });
 
 // Serve static files from the React app build directory
-app.use(express.static(path.join(__dirname, "dist")));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "../dist")));
+app.use(express.static(path.join(__dirname, "../public")));
 
 // Create temp directory if it doesn't exist
-const tempDir = path.join(__dirname, "temp");
+const tempDir = path.join(__dirname, "../temp");
 fs.mkdir(tempDir, { recursive: true })
   .then(() => console.log("Temporary directory ensured"))
   .catch(console.error);
@@ -713,7 +713,7 @@ app.get('/api/health', (req, res) => {
 
 // Catch-all route to serve the React app
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "dist", "index.html"));
+  res.sendFile(path.join(__dirname, "../dist", "index.html"));
 });
 
 // Use the port provided by Replit, or fallback to 3000
