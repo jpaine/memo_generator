@@ -23,105 +23,9 @@ const {Storage} = require('@google-cloud/storage');
 // Context Management System
 class ContextManager {
   constructor() {
-    this.useSupermemory = process.env.USE_SUPERMEMORY === 'true';
-    this.supermemoryApiKey = process.env.SUPERMEMORY_API_KEY;
-    this.supermemoryBaseUrl = process.env.SUPERMEMORY_BASE_URL || 'https://api.supermemory.ai/v3';
     this.maxTokens = 120000; // Conservative limit for GPT-4o
-    this.chunkSize = 8000; // Size for each context chunk
-  }
-
-  async storeContext(content, sessionId, metadata = {}) {
-    if (!this.useSupermemory || !this.supermemoryApiKey) {
-      console.warn('Supermemory not configured, using in-memory context management');
-      return this.storeInMemory(content, sessionId, metadata);
-    }
-
-    try {
-      const response = await fetch(`${this.supermemoryBaseUrl}/memories`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.supermemoryApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          content,
-          sessionId,
-          metadata: {
-            ...metadata,
-            timestamp: new Date().toISOString(),
-            type: 'memo_generation'
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Supermemory API error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('Successfully stored context in Supermemory');
-      return result;
-    } catch (error) {
-      console.error('Error storing context in Supermemory:', error);
-      return this.storeInMemory(content, sessionId, metadata);
-    }
-  }
-
-  async manageTokenLimit(content, sessionId) {
-    const tokenCount = this.estimateTokens(content);
-    
-    if (tokenCount <= this.maxTokens) {
-      return content;
-    }
-
-    console.log(`Content exceeds token limit (${tokenCount} > ${this.maxTokens}), using context management`);
-
-    // Store full content for future reference
-    await this.storeContext(content, sessionId, {
-      tokenCount,
-      fullContent: true
-    });
-
-    // Extract key information and create summarized version
-    const chunks = this.chunkContent(content);
-    const keyChunks = await this.selectKeyChunks(chunks, sessionId);
-    
-    return keyChunks.join('\n\n');
-  }
-
-  chunkContent(content) {
-    const words = content.split(' ');
-    const chunks = [];
-    
-    for (let i = 0; i < words.length; i += this.chunkSize) {
-      chunks.push(words.slice(i, i + this.chunkSize).join(' '));
-    }
-    
-    return chunks;
-  }
-
-  async selectKeyChunks(chunks, sessionId) {
-    const totalChunks = chunks.length;
-    const keepCount = Math.min(6, totalChunks);
-    
-    if (totalChunks <= keepCount) {
-      return chunks;
-    }
-
-    const selectedChunks = [
-      ...chunks.slice(0, Math.ceil(keepCount / 2)),
-      ...chunks.slice(-Math.floor(keepCount / 2))
-    ];
-
-    // Store non-selected chunks for potential future retrieval
-    for (let i = Math.ceil(keepCount / 2); i < totalChunks - Math.floor(keepCount / 2); i++) {
-      await this.storeContext(chunks[i], sessionId, {
-        chunkIndex: i,
-        type: 'excluded_chunk'
-      });
-    }
-
-    return selectedChunks;
+    this.chunkSize = 4000; // Size for each context chunk
+    this.memoryStore = new Map(); // Session-based memory
   }
 
   estimateTokens(text) {
@@ -129,154 +33,217 @@ class ContextManager {
     return Math.ceil(text.length / 4);
   }
 
-  storeInMemory(content, sessionId, metadata) {
-    if (!global.memoryStore) {
-      global.memoryStore = new Map();
-    }
-    
-    if (!global.memoryStore.has(sessionId)) {
-      global.memoryStore.set(sessionId, []);
-    }
-    
-    global.memoryStore.get(sessionId).push({
-      content,
-      metadata,
-      timestamp: new Date().toISOString(),
-      id: crypto.randomUUID()
-    });
-    
-    return { success: true, storage: 'memory' };
-  }
-}
-
-const contextManager = new ContextManager();
-
-// Context Management System
-class ContextManager {
-  constructor() {
-    this.useSupermemory = process.env.USE_SUPERMEMORY === 'true';
-    this.supermemoryApiKey = process.env.SUPERMEMORY_API_KEY;
-    this.supermemoryBaseUrl = process.env.SUPERMEMORY_BASE_URL || 'https://api.supermemory.ai/v3';
-    this.maxTokens = 120000; // Conservative limit for GPT-4o
-    this.chunkSize = 8000; // Size for each context chunk
-  }
-
-  async storeContext(content, sessionId, metadata = {}) {
-    if (!this.useSupermemory || !this.supermemoryApiKey) {
-      console.warn('Supermemory not configured, using in-memory context management');
-      return this.storeInMemory(content, sessionId, metadata);
-    }
-
-    try {
-      const response = await fetch(`${this.supermemoryBaseUrl}/memories`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.supermemoryApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          content,
-          sessionId,
-          metadata: {
-            ...metadata,
-            timestamp: new Date().toISOString(),
-            type: 'memo_generation'
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Supermemory API error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('Successfully stored context in Supermemory');
-      return result;
-    } catch (error) {
-      console.error('Error storing context in Supermemory:', error);
-      return this.storeInMemory(content, sessionId, metadata);
-    }
-  }
-
   async manageTokenLimit(content, sessionId) {
     const tokenCount = this.estimateTokens(content);
-
+    
     if (tokenCount <= this.maxTokens) {
+      // Store for future sessions if needed
+      this.storeInMemory(content, sessionId, { tokenCount, type: 'full_content' });
       return content;
     }
 
-    console.log(`Content exceeds token limit (${tokenCount} > ${this.maxTokens}), using context management`);
+    console.log(`Content exceeds token limit (${tokenCount} > ${this.maxTokens}), applying intelligent chunking`);
 
-    // Store full content for future reference
-    await this.storeContext(content, sessionId, {
-      tokenCount,
-      fullContent: true
+    // Store full content for reference
+    this.storeInMemory(content, sessionId, { 
+      tokenCount, 
+      type: 'full_content_stored',
+      timestamp: new Date().toISOString() 
     });
 
-    // Extract key information and create summarized version
-    const chunks = this.chunkContent(content);
-    const keyChunks = await this.selectKeyChunks(chunks, sessionId);
-
-    return keyChunks.join('\n\n');
+    // Apply intelligent content reduction
+    const optimizedContent = this.intelligentContentReduction(content);
+    
+    return optimizedContent;
   }
 
-  chunkContent(content) {
-    const words = content.split(' ');
-    const chunks = [];
-
-    for (let i = 0; i < words.length; i += this.chunkSize) {
-      chunks.push(words.slice(i, i + this.chunkSize).join(' '));
+  intelligentContentReduction(content) {
+    // Split content into logical sections
+    const sections = this.parseContentSections(content);
+    
+    // Prioritize sections by importance
+    const prioritizedSections = this.prioritizeSections(sections);
+    
+    // Build optimized content within token limits
+    let optimizedContent = '';
+    let currentTokens = 0;
+    
+    for (const section of prioritizedSections) {
+      const sectionTokens = this.estimateTokens(section.content);
+      
+      if (currentTokens + sectionTokens <= this.maxTokens - 1000) { // Leave buffer
+        optimizedContent += section.content + '\n\n';
+        currentTokens += sectionTokens;
+      } else {
+        // Summarize remaining important sections
+        const summary = this.createSectionSummary(section);
+        const summaryTokens = this.estimateTokens(summary);
+        
+        if (currentTokens + summaryTokens <= this.maxTokens - 500) {
+          optimizedContent += `[SUMMARIZED] ${summary}\n\n`;
+          currentTokens += summaryTokens;
+        }
+      }
     }
-
-    return chunks;
+    
+    return optimizedContent;
   }
 
-  async selectKeyChunks(chunks, sessionId) {
-    const totalChunks = chunks.length;
-    const keepCount = Math.min(6, totalChunks);
-
-    if (totalChunks <= keepCount) {
-      return chunks;
+  parseContentSections(content) {
+    const sections = [];
+    
+    // Split by common delimiters and section headers
+    const parts = content.split(/\n\n+|(?=Email:|Current Deal Terms:|Extracted Text|Founder Information)/i);
+    
+    for (const part of parts) {
+      if (part.trim().length > 50) { // Skip very short sections
+        const type = this.identifySectionType(part);
+        sections.push({
+          content: part.trim(),
+          type,
+          priority: this.getSectionPriority(type),
+          length: part.length
+        });
+      }
     }
-
-    const selectedChunks = [
-      ...chunks.slice(0, Math.ceil(keepCount / 2)),
-      ...chunks.slice(-Math.floor(keepCount / 2))
-    ];
-
-    // Store non-selected chunks for potential future retrieval
-    for (let i = Math.ceil(keepCount / 2); i < totalChunks - Math.floor(keepCount / 2); i++) {
-      await this.storeContext(chunks[i], sessionId, {
-        chunkIndex: i,
-        type: 'excluded_chunk'
-      });
-    }
-
-    return selectedChunks;
+    
+    return sections;
   }
 
-  estimateTokens(text) {
-    // Rough estimation: 1 token ≈ 4 characters for English text
-    return Math.ceil(text.length / 4);
+  identifySectionType(content) {
+    const lower = content.toLowerCase();
+    
+    if (lower.includes('email:')) return 'contact_info';
+    if (lower.includes('current deal terms') || lower.includes('funding round')) return 'deal_terms';
+    if (lower.includes('founder information') || lower.includes('linkedin')) return 'founder_info';
+    if (lower.includes('extracted text') || lower.includes('document')) return 'document_content';
+    if (lower.includes('url') || lower.includes('website')) return 'web_content';
+    
+    return 'general_content';
+  }
+
+  getSectionPriority(type) {
+    const priorities = {
+      'deal_terms': 10,
+      'founder_info': 9,
+      'document_content': 8,
+      'contact_info': 7,
+      'web_content': 6,
+      'general_content': 5
+    };
+    
+    return priorities[type] || 5;
+  }
+
+  prioritizeSections(sections) {
+    return sections.sort((a, b) => {
+      // Sort by priority first, then by length (longer content often more important)
+      if (a.priority !== b.priority) {
+        return b.priority - a.priority;
+      }
+      return b.length - a.length;
+    });
+  }
+
+  createSectionSummary(section) {
+    const content = section.content;
+    
+    // Extract key information based on section type
+    if (section.type === 'document_content') {
+      return this.summarizeDocumentContent(content);
+    } else if (section.type === 'founder_info') {
+      return this.summarizeFounderInfo(content);
+    } else if (section.type === 'web_content') {
+      return this.summarizeWebContent(content);
+    }
+    
+    // Generic summary for other types
+    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 20);
+    const keyPhrases = this.extractKeyPhrases(content);
+    
+    return `Key points: ${keyPhrases.slice(0, 3).join(', ')}. ${sentences.slice(0, 2).join('. ')}.`;
+  }
+
+  summarizeDocumentContent(content) {
+    // Extract business-critical information
+    const businessTerms = ['revenue', 'growth', 'market', 'customers', 'product', 'technology', 'team', 'funding', 'valuation', 'competitors'];
+    const sentences = content.split(/[.!?]+/);
+    
+    const keyInfoSentences = sentences.filter(sentence => {
+      const lower = sentence.toLowerCase();
+      return businessTerms.some(term => lower.includes(term));
+    }).slice(0, 3);
+    
+    return `Business Summary: ${keyInfoSentences.join('. ')}.`;
+  }
+
+  summarizeFounderInfo(content) {
+    // Extract founder details
+    const lines = content.split('\n').filter(line => line.trim());
+    const keyInfo = [];
+    
+    for (const line of lines) {
+      if (line.includes('Name:') || line.includes('Position:') || line.includes('Experience:') || line.includes('Education:')) {
+        keyInfo.push(line.trim());
+      }
+    }
+    
+    return `Founder Details: ${keyInfo.slice(0, 4).join(', ')}.`;
+  }
+
+  summarizeWebContent(content) {
+    // Extract web content summary
+    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 30);
+    return `Web Content Summary: ${sentences.slice(0, 2).join('. ')}.`;
+  }
+
+  extractKeyPhrases(content) {
+    // Simple keyword extraction
+    const words = content.toLowerCase().match(/\b\w{4,}\b/g) || [];
+    const frequency = {};
+    
+    words.forEach(word => {
+      frequency[word] = (frequency[word] || 0) + 1;
+    });
+    
+    return Object.keys(frequency)
+      .sort((a, b) => frequency[b] - frequency[a])
+      .slice(0, 10);
   }
 
   storeInMemory(content, sessionId, metadata) {
-    if (!global.memoryStore) {
-      global.memoryStore = new Map();
+    if (!this.memoryStore.has(sessionId)) {
+      this.memoryStore.set(sessionId, []);
     }
-
-    if (!global.memoryStore.has(sessionId)) {
-      global.memoryStore.set(sessionId, []);
-    }
-
-    global.memoryStore.get(sessionId).push({
+    
+    this.memoryStore.get(sessionId).push({
       content,
       metadata,
       timestamp: new Date().toISOString(),
       id: crypto.randomUUID()
     });
-
+    
+    // Keep only last 5 entries per session to manage memory
+    const sessions = this.memoryStore.get(sessionId);
+    if (sessions.length > 5) {
+      this.memoryStore.set(sessionId, sessions.slice(-5));
+    }
+    
     return { success: true, storage: 'memory' };
+  }
+
+  retrieveFromMemory(sessionId, type = null) {
+    if (!this.memoryStore.has(sessionId)) {
+      return [];
+    }
+    
+    const memories = this.memoryStore.get(sessionId);
+    
+    if (type) {
+      return memories.filter(memory => memory.metadata.type === type);
+    }
+    
+    return memories;
   }
 }
 
@@ -327,7 +294,6 @@ const visionClient = new vision.ImageAnnotatorClient({
 });
 
 app.use(express.json());
-
 // Add new helper function for content moderation
 async function moderateContent(text, traceId) {
   try {
@@ -612,7 +578,6 @@ async function extractContentFromUrl(url) {
     return "";
   }
 }
-
 // File upload and processing endpoint
 app.post("/api/upload", upload.fields([
   { name: "documents" },
@@ -838,7 +803,7 @@ app.post("/api/upload", upload.fields([
 
     Structure the memo with the following sections, using HTML tags for formatting:
 
-    0. <h2>Generated using Flybridge Memo Generator</h2>
+    0. <h2>Generated using Golden Gate Memo Generator</h2>
 
     1. <h2>Executive Summary</h2>
        - Include deal terms and analysis date
