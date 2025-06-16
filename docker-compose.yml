@@ -1,11 +1,16 @@
 version: "3.9"
 
 services:
-  node-app:
+  memo-generator:
     build: .
     ports:
-      - "8000:3002"        # host:container  (localhost:8080 → container:3002)
+      - "3000:3000"        # host:container (localhost:3000 → container:3000)
     environment:
-      - NODE_ENV=production
-      - PORT=3002          # your app can read this if needed
+      - NODE_ENV=development
+      - PORT=3000
+    env_file:
+      - .env              # Load environment variables from .env file
+    volumes:
+      - ./temp:/app/temp  # Mount temp directory for file uploads
+      - /tmp:/tmp         # Mount system temp for multer uploads
     restart: unless-stopped
