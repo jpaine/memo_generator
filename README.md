@@ -89,7 +89,7 @@ PROXYCURL_API_KEY=your-proxycurl-api-key
 GOOGLE_APPLICATION_CREDENTIALS=./path-to-your-google-cloud-credentials.json
 PORTKEY_API_KEY=your-portkey-api-key
 PORT=3002
-GOOGLE_CLOUD_PROJECT_ID=flybridgememo-generator
+GOOGLE_CLOUD_PROJECT_ID=ggv-memo-generator
 ```
 
 ### Set Up Google Cloud Vision API

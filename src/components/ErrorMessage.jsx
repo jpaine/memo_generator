@@ -2,7 +2,7 @@ import React from 'react';
 
 function ErrorMessage({ error }) {
   // Consistent contact message used across all error types
-  const contactMessage = "If you continue to experience issues, please email daniel@flybridge.com.";
+  const contactMessage = "If you continue to experience issues, please email veer.dosi@goldengate.vc.";
 
   // Handle cases where error is undefined or null
   if (!error) {
@@ -20,7 +20,7 @@ function ErrorMessage({ error }) {
   if (errorString.includes("429") || errorString.toLowerCase().includes("rate limit")) {
     return (
       <div className="error-message">
-        <p>Daily OpenAI credits exceeded, try tomorrow or message daniel@flybridge.com.</p>
+        <p>Daily OpenAI credits exceeded, try tomorrow or message veer.dosi@goldengate.vc.</p>
       </div>
     );
   }

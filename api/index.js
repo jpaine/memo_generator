@@ -468,114 +468,110 @@ async function getLinkedInProfile(url) {
   }
 }
 
-// Helper function to process OCR documents using async batch API
+// Helper function to process OCR documents with timeout protection
 async function processOCRDocuments(files) {
   let extractedText = "";
   const storage = new Storage();
   const bucketName = 'memo-generator';
+  const MAX_OCR_TIME = 90000; // 1.5 minutes max for OCR
 
   for (const file of files) {
     if (file.mimetype === "application/pdf") {
       try {
         console.log(`Processing OCR for file: ${file.originalname}`);
 
-        // 1. Upload file to Google Cloud Storage
-        const gcsFileName = `temp-uploads/${Date.now()}-${file.originalname}`;
-        const bucket = storage.bucket(bucketName);
-        const blob = bucket.file(gcsFileName);
+        // Wrap OCR processing with timeout
+        const ocrPromise = processSinglePDFOCR(file, storage, bucketName);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OCR timeout')), MAX_OCR_TIME)
+        );
 
-        // Read file and upload to GCS
-        const fileContent = await fs.readFile(file.path);
-        await blob.save(fileContent);
-
-        // 2. Create async batch request
-        const gcsSourceUri = `gs://${bucketName}/${gcsFileName}`;
-        const gcsDestinationUri = `gs://${bucketName}/ocr-results/${Date.now()}-output-`;
-
-        const request = {
-          requests: [{
-            inputConfig: {
-              gcsSource: {
-                uri: gcsSourceUri
-              },
-              mimeType: "application/pdf"
-            },
-            features: [{
-              type: "DOCUMENT_TEXT_DETECTION"
-            }],
-            outputConfig: {
-              gcsDestination: {
-                uri: gcsDestinationUri
-              },
-              batchSize: 100  // Process 100 pages per output file
-            }
-          }]
-        };
-
-        // 3. Start async batch operation
-        const [operation] = await visionClient.asyncBatchAnnotateFiles(request);
-        console.log(`Started operation: ${operation.name}`);
-
-        // 4. Wait for the operation to complete
-        const [filesResponse] = await operation.promise();
-
-        // 5. Read results from GCS
-        const outputPrefix = gcsDestinationUri.replace('gs://' + bucketName + '/', '');
-        const [outputFiles] = await bucket.getFiles({ prefix: outputPrefix });
-
-        for (const outputFile of outputFiles) {
-          const [content] = await outputFile.download();
-          const result = JSON.parse(content.toString());
-
-          // Extract text from each response
-          if (result.responses) {
-            for (const response of result.responses) {
-              if (response.fullTextAnnotation) {
-                extractedText += response.fullTextAnnotation.text + "\n\n";
-              }
-            }
-          }
-        }
-
-        // 6. Cleanup: Delete temporary files
-        await blob.delete();
-        for (const outputFile of outputFiles) {
-          await outputFile.delete();
-        }
+        const result = await Promise.race([ocrPromise, timeoutPromise]);
+        extractedText += result;
 
         console.log(`Successfully processed file: ${file.originalname}`);
       } catch (error) {
         console.error("Error processing PDF with Google Cloud Vision:", error);
-        throw error;  // Re-throw to handle in the upload route
+        // Continue with other files instead of failing completely
+        extractedText += `[OCR Error for ${file.originalname}: ${error.message}]\n\n`;
       } finally {
         // Clean up the uploaded file from local storage
-        await fs.unlink(file.path);
+        await fs.unlink(file.path).catch(console.error);
       }
     } else {
       console.warn(`Unsupported file type for OCR: ${file.mimetype}`);
-      await fs.unlink(file.path);
+      await fs.unlink(file.path).catch(console.error);
     }
   }
 
   return extractedText;
 }
 
-// Helper function to extract content from a URL
-async function extractContentFromUrl(url) {
+// Separate function for single PDF OCR processing
+async function processSinglePDFOCR(file, storage, bucketName) {
+  const gcsFileName = `temp-uploads/${Date.now()}-${file.originalname}`;
+  const bucket = storage.bucket(bucketName);
+  const blob = bucket.file(gcsFileName);
+
   try {
-    const response = await axios.get(url);
+    // Read file and upload to GCS
+    const fileContent = await fs.readFile(file.path);
+    await blob.save(fileContent);
+
+    // Use synchronous OCR for smaller files (faster)
+    const gcsSourceUri = `gs://${bucketName}/${gcsFileName}`;
+    
+    // Try synchronous detection first (much faster)
+    const request = {
+      requests: [{
+        inputConfig: {
+          gcsSource: { uri: gcsSourceUri },
+          mimeType: "application/pdf"
+        },
+        features: [{ type: "DOCUMENT_TEXT_DETECTION" }]
+      }]
+    };
+
+    const [result] = await visionClient.batchAnnotateFiles(request);
+    let extractedText = "";
+
+    if (result.responses) {
+      for (const response of result.responses) {
+        if (response.fullTextAnnotation) {
+          extractedText += response.fullTextAnnotation.text + "\n\n";
+        }
+      }
+    }
+
+    return extractedText;
+  } finally {
+    // Cleanup
+    await blob.delete().catch(console.error);
+  }
+}
+
+// Helper function to extract content from a URL with timeout
+async function extractContentFromUrl(url, timeout = 8000) {
+  try {
+    const response = await axios.get(url, { 
+      timeout,
+      maxRedirects: 3,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MemoGenerator/1.0)'
+      }
+    });
     const $ = cheerio.load(response.data);
 
-    $('script, style').remove();
+    $('script, style, nav, footer, header').remove();
 
     let content = $('body').text();
-
     content = content.replace(/\s+/g, ' ').trim();
 
-    return content;
+    // Limit content length to prevent token overflow
+    return content.substring(0, 5000);
   } catch (error) {
     console.error("Error extracting content from URL:", error);
-    return "";
+    return `[Error fetching ${url}: ${error.message}]`;
   }
 }
 // File upload and processing endpoint
@@ -598,7 +594,13 @@ app.post("/api/upload", upload.fields([
   next(error);
 }, async (req, res) => {
   const traceId = crypto.randomUUID();
+  const startTime = Date.now();
   console.log(`Starting memo generation process with trace ID: ${traceId}`);
+
+  // Set up timeout monitoring
+  const timeoutWarning = setTimeout(() => {
+    console.warn(`Request ${traceId} approaching timeout limit (${Date.now() - startTime}ms)`);
+  }, 270000); // Warn at 4.5 minutes
 
   try {
     const files = req.files["documents"] || [];
@@ -646,13 +648,7 @@ app.post("/api/upload", upload.fields([
 
     if (ocrFiles.length > 0) {
       console.log(`Processing ${ocrFiles.length} OCR documents`);
-      for (const file of ocrFiles) {
-        const fileBuffer = await fs.readFile(file.path);
-        const blob = await uploadToBlob(fileBuffer, file.originalname);
-        uploadedBlobs.push(blob.url);
-        await fs.unlink(file.path);
-      }
-      extractedText = await processOCRDocumentsFromBlob(uploadedBlobs);
+      extractedText = await processOCRDocuments(ocrFiles);
     }
 
     // Process regular documents
@@ -668,10 +664,7 @@ app.post("/api/upload", upload.fields([
       await fs.unlink(file.path);
     }
 
-    // Cleanup uploaded blobs after processing
-    for (const blobUrl of uploadedBlobs) {
-      await deleteFromBlob(blobUrl);
-    }
+    // No need to cleanup uploaded blobs since we're not using them anymore
 
     // Early moderation check after initial document processing
     if (extractedText) {
@@ -685,13 +678,27 @@ app.post("/api/upload", upload.fields([
       }
     }
 
-    // Extract content from URLs if provided
+    // Extract content from URLs if provided (with parallel processing and timeout)
     if (urls && urls.length > 0) {
       console.log("Extracting content from multiple URLs:", urls);
-      for (const urlObj of urls) {
-        const urlContent = await extractContentFromUrl(urlObj.url);
-        extractedText += `\n\nContent from ${urlObj.type} URL (${urlObj.url}):\n${urlContent}`;
-      }
+      const urlPromises = urls.map(async (urlObj) => {
+        try {
+          const urlContent = await extractContentFromUrl(urlObj.url);
+          return `\n\nContent from ${urlObj.type} URL (${urlObj.url}):\n${urlContent}`;
+        } catch (error) {
+          return `\n\n[Failed to fetch ${urlObj.url}: ${error.message}]`;
+        }
+      });
+      
+      // Process URLs in parallel with timeout
+      const urlResults = await Promise.allSettled(urlPromises);
+      urlResults.forEach(result => {
+        if (result.status === 'fulfilled') {
+          extractedText += result.value;
+        } else {
+          extractedText += `\n\n[URL processing error: ${result.reason}]`;
+        }
+      });
     }
 
     // Final moderation check after all content is combined
@@ -712,16 +719,23 @@ app.post("/api/upload", upload.fields([
       });
     }
 
-    // Fetch and process LinkedIn data
-    const founderData = await Promise.all(
+    // Fetch and process LinkedIn data (with parallel processing and timeout)
+    const founderData = await Promise.allSettled(
       linkedInUrls.map(async (url) => {
         if (url) {
           console.log("Processing LinkedIn URL:", url);
-          const profileData = await getLinkedInProfile(url);
-          if (profileData.error) {
-            return `Error fetching founder background: ${profileData.error}`;
-          } else {
-            return `
+          try {
+            const profileData = await Promise.race([
+              getLinkedInProfile(url),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('LinkedIn fetch timeout')), 12000)
+              )
+            ]);
+            
+            if (profileData.error) {
+              return `Error fetching founder background: ${profileData.error}`;
+            } else {
+              return `
           Name: ${profileData.full_name}
           Current Position: ${profileData.occupation}
           Summary: ${profileData.summary}
@@ -730,11 +744,19 @@ app.post("/api/upload", upload.fields([
           Skills: ${profileData.skills ? profileData.skills.join(", ") : "Not available"}
           LinkedIn URL: ${url}
         `;
+            }
+          } catch (error) {
+            return `Error fetching founder background: ${error.message}`;
           }
         }
         return null;
       }),
     );
+
+    // Process founder data results
+    const processedFounderData = founderData
+      .filter(result => result.status === 'fulfilled' && result.value !== null)
+      .map(result => result.value);
 
     // Combine extracted text
     let combinedText = `
@@ -746,19 +768,27 @@ app.post("/api/upload", upload.fields([
       Extracted Text from Documents:
       ${extractedText}
       Founder Information from LinkedIn:
-      ${founderData.filter((data) => data !== null).join("\n\n")}
+      ${processedFounderData.join("\n\n")}
     `;
 
     // Apply context management using our new system
     combinedText = await contextManager.manageTokenLimit(combinedText, traceId);
 
-    // Summarize market opportunity
-    const marketOpportunitySpanId = crypto.randomUUID();
-    const marketOpportunity = await summarizeMarketOpportunity(extractedText, traceId, marketOpportunitySpanId);
-    console.log("Market opportunity:", marketOpportunity);
+    // Run market analysis and memo generation in parallel
+    const [marketAnalysisResult, marketOpportunity] = await Promise.all([
+      Promise.race([
+        runMarketAnalysis(await summarizeMarketOpportunity(extractedText, traceId, marketOpportunitySpanId), traceId),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Market analysis timeout')), 45000)
+        )
+      ]).catch(error => {
+        console.error("Market analysis failed:", error);
+        return null; // Return null instead of mock data
+      }),
+      summarizeMarketOpportunity(extractedText, traceId, marketOpportunitySpanId)
+    ]);
 
-    // Run the market analysis
-    const marketAnalysisResult = await runMarketAnalysis(marketOpportunity, traceId);
+    console.log("Market opportunity:", marketOpportunity);
     console.log("Market analysis result:", marketAnalysisResult);
 
     // Generate the full memorandum
@@ -773,12 +803,17 @@ app.post("/api/upload", upload.fields([
     });
 
     const fullMemoSpanId = crypto.randomUUID();
-    const completion = await openai.chat.completions.create({
-      model: "o1-mini",
-      messages: [
-        {
-          role: "user",
-          content: `
+    const completion = await Promise.race([
+      openai.chat.completions.create({
+        model: "gpt-4o", // Changed from o1-mini for faster generation
+        messages: [
+          {
+            role: "system",
+            content: "You are a top-tier senior venture capitalist with experience in evaluating early-stage startups. Generate comprehensive investment memorandums using HTML formatting. Be detailed but efficient."
+          },
+          {
+            role: "user",
+            content: `
     You are a top-tier senior venture capitalist with experience in evaluating early-stage startups. Your role is to generate comprehensive investment memorandums based on provided information. Format the output using HTML tags for better readability. Limit yourself to the data given in context and do not make up things or people will get fired. Each section should be detailed and comprehensive, with a particular focus on providing extensive information in the product description section. Generating all required sections of the memo is a must. You should approach this with a critical lens, balancing skepticism and insight while recognizing that venture capital focuses on the potential if things go well. For instance, in the diligence section, you could explain the company's go-to-market strategy or product roadmap, but it's perfectly fine to highlight anything unusual or potentially risky.
 
     Generate a detailed and comprehensive investment memorandum based on the following information:
@@ -791,12 +826,12 @@ app.post("/api/upload", upload.fields([
     Analysis Date: ${valuationDate || "Not provided"}
 
     Market Analysis Result:
-    Industry Information: ${marketAnalysisResult.industry_analysis || "Not available"}
-    Market Sizing Information: ${marketAnalysisResult.market_analysis || "Not available"}
-    Competitor Analysis: ${marketAnalysisResult.competitor_analysis || "Not available"}
-    Timing Analysis: ${marketAnalysisResult.timing_analysis || "Not available"}
-    Regional Analysis: ${marketAnalysisResult.regional_analysis || "Not available"}
-    Investment Decision: ${marketAnalysisResult.decision || "Not available"}
+    Industry Information: ${marketAnalysisResult?.industry_analysis || "Analysis unavailable"}
+    Market Sizing Information: ${marketAnalysisResult?.market_analysis || "Analysis unavailable"}
+    Competitor Analysis: ${marketAnalysisResult?.competitor_analysis || "Analysis unavailable"}
+    Timing Analysis: ${marketAnalysisResult?.timing_analysis || "Analysis unavailable"}
+    Regional Analysis: ${marketAnalysisResult?.regional_analysis || "Analysis unavailable"}
+    Investment Decision: ${marketAnalysisResult?.decision || "Analysis unavailable"}
 
 
     Additional Context: ${combinedText}
@@ -870,26 +905,41 @@ app.post("/api/upload", upload.fields([
     15. <h2>Appendix</h2>
        - Additional Data: Include supporting charts, graphs, or data for deeper insights.`,
 
-        },
-      ],
-    }, {
-      headers: {
-        'x-portkey-trace-id': traceId,
-        'x-portkey-span-id': fullMemoSpanId,
-        'x-portkey-span-name': 'Generate Full Memorandum'
-      }
-    });
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 8000 // Limit output tokens for speed
+      }, {
+        headers: {
+          'x-portkey-trace-id': traceId,
+          'x-portkey-span-id': fullMemoSpanId,
+          'x-portkey-span-name': 'Generate Full Memorandum'
+        }
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Memo generation timeout')), 90000) // 1.5 min timeout
+      )
+    ]);
 
     const memorandum = completion.choices[0].message.content;
     console.log("Generated memorandum length:", memorandum.length);
-
+    console.log(`Total processing time: ${Date.now() - startTime}ms`);
+    
+    clearTimeout(timeoutWarning);
     res.json({ memorandum: memorandum, traceId: traceId });
   } catch (error) {
+    clearTimeout(timeoutWarning);
     console.error("Error in /upload route:", error);
+    console.log(`Failed processing time: ${Date.now() - startTime}ms`);
     if (error.message === "Content flagged by moderation system") {
       res.status(400).json({
         error: "Content moderation check failed",
         details: "The provided content contains inappropriate material that violates our content policy."
+      });
+    } else if (error.message.includes('timeout')) {
+      res.status(408).json({
+        error: "Request timeout",
+        details: "The memo generation took too long. Please try with smaller files or fewer URLs."
       });
     } else {
       res.status(500).json({
