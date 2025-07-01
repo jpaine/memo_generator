@@ -10,19 +10,35 @@ const cheerio = require("cheerio");
 const fs = require("fs").promises;
 const path = require("path");
 const HTMLtoDOCX = require("html-to-docx");
-const Promise = require("bluebird");
 const vision = require("@google-cloud/vision");
 const { spawn } = require("child_process");
 const cors = require("cors");
 const crypto = require("crypto");
 const GoogleDriveService = require('./googleDriveService');
-const { uploadToBlob, deleteFromBlob } = require('./blobStorage');
 const Portkey = require("portkey-ai").default;
-const portkey = new Portkey({ apiKey: process.env.PORTKEY_API_KEY });
-const {Storage} = require('@google-cloud/storage');
 
-// Initialize Google Drive service
+// Initialize Google Drive service and Portkey
 const driveService = new GoogleDriveService();
+const portkey = new Portkey({ apiKey: process.env.PORTKEY_API_KEY });
+
+// Validate required environment variables
+function validateEnvironment() {
+  const required = [
+    'OPENAI_API_KEY',
+    'PORTKEY_API_KEY', 
+    'GOOGLE_SERVICE_ACCOUNT_KEY',
+    'GOOGLE_APPLICATION_CREDENTIALS'
+  ];
+  
+  const missing = required.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    console.error('Missing required environment variables:', missing);
+    throw new Error(`Missing environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Initialize on startup
+validateEnvironment();
 
 // Context Management System
 class ContextManager {
@@ -797,6 +813,7 @@ app.post("/api/upload", upload.fields([
     combinedText = await contextManager.manageTokenLimit(combinedText, traceId);
 
     // Run market analysis and memo generation in parallel
+    const marketOpportunitySpanId = crypto.randomUUID();
     const [marketAnalysisResult, marketOpportunity] = await Promise.all([
       Promise.race([
         runMarketAnalysis(await summarizeMarketOpportunity(extractedText, traceId, marketOpportunitySpanId), traceId),
