@@ -10,7 +10,7 @@ const cheerio = require("cheerio");
 const fs = require("fs").promises;
 const path = require("path");
 const HTMLtoDOCX = require("html-to-docx");
-const htmlPdf = require('html-pdf-node');
+const { chromium } = require('playwright');
 const vision = require("@google-cloud/vision");
 const { Storage } = require("@google-cloud/storage");
 const { spawn } = require("child_process");
@@ -852,16 +852,48 @@ app.post("/api/upload", upload.fields([
               continue;
             }
             
-            const pdfData = await pdf(fileBuffer);
-            if (pdfData && pdfData.text && pdfData.text.trim().length > 0) {
-              extractedText += pdfData.text + "\n\n";
-            } else {
-              console.warn(`PDF parsing returned no text: ${file.originalname || 'unknown'}`);
+            // Suppress glyf table warnings by capturing stderr temporarily
+            const originalConsoleWarn = console.warn;
+            const originalConsoleError = console.error;
+            
+            // Filter out glyf table warnings
+            console.warn = (message) => {
+              if (typeof message === 'string' && message.includes('glyf')) {
+                return; // Suppress glyf warnings
+              }
+              originalConsoleWarn(message);
+            };
+            
+            console.error = (message) => {
+              if (typeof message === 'string' && message.includes('glyf')) {
+                return; // Suppress glyf errors
+              }
+              originalConsoleError(message);
+            };
+            
+            try {
+              const pdfData = await pdf(fileBuffer, {
+                // Add options to handle malformed PDFs better
+                max: 0, // No page limit
+                version: 'default'
+              });
+              
+              if (pdfData && pdfData.text && pdfData.text.trim().length > 0) {
+                extractedText += pdfData.text + "\n\n";
+              } else {
+                console.warn(`PDF parsing returned no text: ${file.originalname || 'unknown'}`);
+              }
+            } finally {
+              // Restore original console methods
+              console.warn = originalConsoleWarn;
+              console.error = originalConsoleError;
             }
           } catch (pdfError) {
             console.error(`PDF parsing failed for ${file.originalname || 'unknown'}:`, pdfError.message);
             if (pdfError.message.includes('stream must have data')) {
               console.warn(`PDF file ${file.originalname || 'unknown'} appears to be corrupted or empty`);
+            } else if (pdfError.message.includes('glyf')) {
+              console.warn(`PDF file ${file.originalname || 'unknown'} has font table issues but may still be processable`);
             }
             // Continue processing other files instead of failing completely
           }
@@ -1217,6 +1249,7 @@ app.post("/api/download/word", express.json(), async (req, res) => {
 // PDF download endpoint
 app.post("/api/download/pdf", express.json(), async (req, res) => {
   console.log("PDF download route hit");
+  let browser;
   try {
     const { content } = req.body;
     
@@ -1300,16 +1333,8 @@ app.post("/api/download/pdf", express.json(), async (req, res) => {
       </html>
     `;
 
-    const options = {
-      format: 'A4',
-      margin: {
-        top: '20mm',
-        bottom: '20mm',
-        left: '20mm',
-        right: '20mm'
-      },
-      printBackground: true,
-      preferCSSPageSize: true,
+    // Launch Playwright browser
+    browser = await chromium.launch({
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -1318,10 +1343,22 @@ app.post("/api/download/pdf", express.json(), async (req, res) => {
         '--disable-web-security',
         '--disable-features=VizDisplayCompositor'
       ]
-    };
-
-    const file = { content: styledContent };
-    const pdfBuffer = await htmlPdf.generatePdf(file, options);
+    });
+    
+    const page = await browser.newPage();
+    await page.setContent(styledContent);
+    
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: {
+        top: '20mm',
+        bottom: '20mm',
+        left: '20mm',
+        right: '20mm'
+      },
+      printBackground: true,
+      preferCSSPageSize: true
+    });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=investment_memorandum.pdf');
@@ -1331,6 +1368,10 @@ app.post("/api/download/pdf", express.json(), async (req, res) => {
     res
       .status(500)
       .json({ error: "An error occurred while generating the PDF document." });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 });
 

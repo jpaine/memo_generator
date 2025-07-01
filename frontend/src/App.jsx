@@ -9,11 +9,11 @@ import LoadingIndicator from "./components/LoadingIndicator";
 import ErrorMessage from "./components/ErrorMessage";
 import MultiUrlInput from "./components/MultiUrlInput";
 import CompanyLogo from './components/CompanyLogo';
-import EmailInput from "./components/EmailInput";
+// import EmailInput from "./components/EmailInput";
 
 function App() {
   // State variables
-  const [email, setEmail] = useState("");
+  // const [email, setEmail] = useState("");
   const [founderCount, setFounderCount] = useState(1);
   const maxFounders = 3;
   const [memorandumContent, setMemorandumContent] = useState("");
@@ -35,10 +35,10 @@ function App() {
     e.preventDefault();
 
     // Check email
-    if (!email) {
-      setError("Please fill in the Email Address.");
-      return;
-    }
+    // if (!email) {
+    //   setError("Please fill in the Email Address.");
+    //   return;
+    // }
 
     // Check date
     if (!valuationDate) {
@@ -56,7 +56,7 @@ function App() {
     }
 
     const formData = new FormData();
-    formData.append("email", email);
+    // formData.append("email", email);
 
     if (documents.regular) {
       for (let i = 0; i < documents.regular.length; i++) {
@@ -298,7 +298,7 @@ function App() {
            <br /><br />
         </div>
         <form onSubmit={handleSubmit} className="form-container">
-          <EmailInput email={email} setEmail={setEmail} />
+          {/* <EmailInput email={email} setEmail={setEmail} /> */}
           <FileUpload
             documents={documents}
             setDocuments={handleDocumentsChange}

@@ -47,9 +47,12 @@ COPY requirements.txt ./
 # Install Node.js dependencies
 RUN npm ci --omit=dev
 
+# Install Playwright browsers
+RUN npx playwright install chromium
+
 # Install Python dependencies with explicit upgrade
-RUN pip3 install --upgrade pip setuptools wheel
-RUN pip3 install -r requirements.txt
+RUN pip3 install --upgrade pip setuptools wheel --break-system-packages
+RUN pip3 install -r requirements.txt --break-system-packages
 
 # Copy application code
 COPY . .
@@ -58,9 +61,9 @@ COPY . .
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
+# Create non-root user for security and set up home directory
+RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser
+RUN chown -R appuser:appuser /app /home/appuser
 USER appuser
 
 # Expose port
