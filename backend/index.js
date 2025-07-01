@@ -11,6 +11,7 @@ const fs = require("fs").promises;
 const path = require("path");
 const HTMLtoDOCX = require("html-to-docx");
 const vision = require("@google-cloud/vision");
+const { Storage } = require("@google-cloud/storage");
 const { spawn } = require("child_process");
 const cors = require("cors");
 const crypto = require("crypto");
