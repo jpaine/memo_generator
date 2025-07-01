@@ -94,7 +94,8 @@ function App() {
     setFeedbackSubmitted(false);
 
     try {
-      const response = await axios.post("/api/upload", formData, {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const response = await axios.post(`${API_URL}/api/upload`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
@@ -127,7 +128,8 @@ function App() {
   // Handle feedback submission
   const sendFeedback = async (value) => {
     try {
-      await axios.post("/api/feedback", {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      await axios.post(`${API_URL}/api/feedback`, {
         traceId: traceId,
         value: value,
       });

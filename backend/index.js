@@ -273,26 +273,31 @@ const storage = new Storage({
 });
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// CORS configuration for separated frontend
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Vite default port
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const upload = multer({
   dest: "/tmp/uploads/",
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit per file
-    files: 3, // Reduce max files
-    fieldSize: 1024 * 1024, // 1MB field size
+    fileSize: 50 * 1024 * 1024, // 50MB limit per file
+    files: 5, // More files
+    fieldSize: 10 * 1024 * 1024, // 10MB field size
     fieldNameSize: 100,
     fields: 20
   }
 });
 
-// Serve static files from the React app build directory
-app.use(express.static(path.join(__dirname, "../dist")));
-app.use(express.static(path.join(__dirname, "../public")));
+// No static file serving needed - frontend deployed separately
 
 // Create temp directory if it doesn't exist
-const tempDir = path.join(__dirname, "../temp");
+const tempDir = path.join(__dirname, "temp");
 fs.mkdir(tempDir, { recursive: true })
   .then(() => console.log("Temporary directory ensured"))
   .catch(console.error);
@@ -1043,10 +1048,7 @@ app.get('/api/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// Catch-all route to serve the React app
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../dist", "index.html"));
-});
+// API endpoints only - no catch-all route needed
 
 // Use the port provided by Replit, or fallback to 3000
 const PORT = process.env.PORT || 3000;
