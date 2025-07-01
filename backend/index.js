@@ -10,6 +10,7 @@ const cheerio = require("cheerio");
 const fs = require("fs").promises;
 const path = require("path");
 const HTMLtoDOCX = require("html-to-docx");
+const htmlPdf = require('html-pdf-node');
 const vision = require("@google-cloud/vision");
 const { Storage } = require("@google-cloud/storage");
 const { spawn } = require("child_process");
@@ -299,6 +300,15 @@ app.get('/apple-touch-icon.png', (req, res) => {
 
 app.get('/apple-touch-icon-precomposed.png', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'favicon.svg'));
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime() 
+  });
 });
 
 const upload = multer({
@@ -1176,9 +1186,157 @@ app.post("/api/upload", upload.fields([
   }
 });
 
-// New download endpoint
+// Word document download endpoint
+app.post("/api/download/word", express.json(), async (req, res) => {
+  console.log("Word download route hit");
+  try {
+    const { content } = req.body;
+    const fileBuffer = await HTMLtoDOCX(content, null, {
+      table: { row: { cantSplit: true } },
+      footer: true,
+      pageNumber: true,
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=investment_memorandum.docx",
+    );
+    res.send(fileBuffer);
+  } catch (error) {
+    console.error("Error generating Word document:", error);
+    res
+      .status(500)
+      .json({ error: "An error occurred while generating the Word document." });
+  }
+});
+
+// PDF download endpoint
+app.post("/api/download/pdf", express.json(), async (req, res) => {
+  console.log("PDF download route hit");
+  try {
+    const { content } = req.body;
+    
+    // Enhanced HTML with better PDF styling
+    const styledContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 40px;
+              background: white;
+            }
+            h1, h2, h3, h4, h5, h6 {
+              color: #2c3e50;
+              margin-top: 2em;
+              margin-bottom: 1em;
+              page-break-after: avoid;
+            }
+            h1 {
+              font-size: 2.5em;
+              border-bottom: 3px solid #3498db;
+              padding-bottom: 0.5em;
+            }
+            h2 {
+              font-size: 2em;
+              border-bottom: 2px solid #ecf0f1;
+              padding-bottom: 0.3em;
+            }
+            h3 {
+              font-size: 1.5em;
+              color: #34495e;
+            }
+            p {
+              margin-bottom: 1em;
+              text-align: justify;
+            }
+            ul, ol {
+              margin-bottom: 1em;
+              padding-left: 2em;
+            }
+            li {
+              margin-bottom: 0.5em;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 1em 0;
+              page-break-inside: avoid;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 12px;
+              text-align: left;
+            }
+            th {
+              background-color: #f8f9fa;
+              font-weight: bold;
+            }
+            .page-break {
+              page-break-before: always;
+            }
+            @media print {
+              body {
+                padding: 20px;
+              }
+              h1, h2, h3 {
+                page-break-after: avoid;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          ${content}
+        </body>
+      </html>
+    `;
+
+    const options = {
+      format: 'A4',
+      margin: {
+        top: '20mm',
+        bottom: '20mm',
+        left: '20mm',
+        right: '20mm'
+      },
+      printBackground: true,
+      preferCSSPageSize: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor'
+      ]
+    };
+
+    const file = { content: styledContent };
+    const pdfBuffer = await htmlPdf.generatePdf(file, options);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename=investment_memorandum.pdf');
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error("Error generating PDF document:", error);
+    res
+      .status(500)
+      .json({ error: "An error occurred while generating the PDF document." });
+  }
+});
+
+// Legacy download endpoint (redirect to Word for backward compatibility)
 app.post("/api/download", express.json(), async (req, res) => {
-  console.log("Download route hit");
+  console.log("Legacy download route hit, redirecting to Word download");
   try {
     const { content } = req.body;
     const fileBuffer = await HTMLtoDOCX(content, null, {

@@ -120,7 +120,75 @@ function App() {
     }
   };
 
-  // Handle memorandum download
+  // Handle memorandum download (Word)
+  const handleDownloadWord = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${API_URL}/api/download/word`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content: memorandumContent }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `HTTP error! status: ${response.status}, message: ${errorText}`,
+        );
+      }
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = downloadUrl;
+      a.download = "investment_memorandum.docx";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Word download error:", error);
+      alert(
+        "An error occurred while downloading the Word document: " + error.message,
+      );
+    }
+  };
+
+  // Handle memorandum download (PDF)
+  const handleDownloadPDF = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${API_URL}/api/download/pdf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content: memorandumContent }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `HTTP error! status: ${response.status}, message: ${errorText}`,
+        );
+      }
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = downloadUrl;
+      a.download = "investment_memorandum.pdf";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("PDF download error:", error);
+      alert(
+        "An error occurred while downloading the PDF document: " + error.message,
+      );
+    }
+  };
+
+  // Legacy download function (for backward compatibility)
   const handleDownload = async () => {
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -267,6 +335,8 @@ function App() {
               cleanHtml={cleanHtml}
               showDownload={showDownload}
               handleDownload={handleDownload}
+              handleDownloadWord={handleDownloadWord}
+              handleDownloadPDF={handleDownloadPDF}
             />
 
           </div>
