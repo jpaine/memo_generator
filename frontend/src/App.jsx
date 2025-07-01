@@ -18,6 +18,7 @@ function App() {
   const maxFounders = 3;
   const [memorandumContent, setMemorandumContent] = useState("");
   const [documents, setDocuments] = useState({ regular: [], ocr: [] });
+  const [companyName, setCompanyName] = useState("");
   const [currentRound, setCurrentRound] = useState("");
   const [proposedValuation, setProposedValuation] = useState("");
   const [valuationDate, setValuationDate] = useState("");
@@ -70,6 +71,7 @@ function App() {
       }
     }
 
+    formData.append("companyName", companyName);
     formData.append("currentRound", currentRound.replace(/,/g, ""));
     formData.append("proposedValuation", proposedValuation.replace(/,/g, ""));
     formData.append("valuationDate", valuationDate);
@@ -303,6 +305,20 @@ function App() {
             documents={documents}
             setDocuments={handleDocumentsChange}
           />
+          <div className="input-group">
+            <label htmlFor="companyName" className="input-label">
+              Company Name
+            </label>
+            <input
+              type="text"
+              id="companyName"
+              className="input-field"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="Enter company name"
+              required
+            />
+          </div>
           <DealTerms
             currentRound={currentRound}
             setCurrentRound={setCurrentRound}
@@ -332,6 +348,7 @@ function App() {
           <div>
             <MemorandumDisplay
               result={result}
+              companyName={companyName}
               cleanHtml={cleanHtml}
               showDownload={showDownload}
               handleDownload={handleDownload}

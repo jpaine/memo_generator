@@ -575,6 +575,26 @@ body {
   overflow: hidden;
 }
 
+.company-name-heading {
+  color: var(--primary-color);
+  font-size: 2.5rem;
+  font-weight: 800;
+  text-align: center;
+  margin: var(--space-xl) 0 var(--space-lg) 0;
+  padding: 0 var(--space-xl);
+  border-bottom: 3px solid var(--primary-color);
+  padding-bottom: var(--space-md);
+}
+
+.generated-memo-heading {
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: center;
+  margin: var(--space-lg) 0 var(--space-xl) 0;
+  padding: 0 var(--space-xl);
+}
+
 .memorandum {
   padding: var(--space-2xl);
   line-height: 1.7;

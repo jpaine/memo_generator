@@ -2,6 +2,7 @@ import React from "react";
 
 function MemorandumDisplay({
   result,
+  companyName,
   cleanHtml,
   showDownload,
   handleDownload,
@@ -10,7 +11,8 @@ function MemorandumDisplay({
 }) {
   return (
     <div className="result-container">
-      <h2>Generated Memorandum</h2>
+      {companyName && <h1 className="company-name-heading">{companyName}</h1>}
+      <h2 className="generated-memo-heading">Generated Memorandum</h2>
       <div
         className="memorandum"
         dangerouslySetInnerHTML={{ __html: cleanHtml(result) }}
