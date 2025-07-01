@@ -311,6 +311,14 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Handle external health check probes
+app.get('/clientIP', (req, res) => {
+  res.status(200).json({ 
+    clientIP: req.ip || req.connection.remoteAddress,
+    timestamp: new Date().toISOString()
+  });
+});
+
 const upload = multer({
   dest: "/tmp/uploads/",
   limits: {
@@ -1410,9 +1418,42 @@ app.get('/api/health', (req, res) => {
 
 // API endpoints only - no catch-all route needed
 
-// Use the port provided by Replit, or fallback to 3000
+// Use the port provided by Render, or fallback to 3000
 const PORT = process.env.PORT || 3000;
 console.log(`Using port: ${PORT}`);
-app.listen(PORT, () => {
+
+// Set server timeout to prevent hanging requests
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+// Set timeout for requests (10 minutes)
+server.timeout = 600000;
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });

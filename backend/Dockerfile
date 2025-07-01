@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     make \
     wget \
+    curl \
     gnupg \
     ca-certificates \
     fonts-liberation \
@@ -64,6 +65,7 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
 # Create non-root user for security and set up home directory
 RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser
 RUN chown -R appuser:appuser /app /home/appuser
+RUN mkdir -p /home/appuser/.npm/_logs && chown -R appuser:appuser /home/appuser/.npm
 USER appuser
 
 # Expose port
@@ -71,7 +73,7 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD curl -f http://localhost:3000/api/health || exit 1
 
 # Start command
 CMD ["npm", "start"]

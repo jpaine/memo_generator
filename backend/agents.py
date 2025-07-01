@@ -1,12 +1,13 @@
 import os
 import sys
+from datetime import datetime
 
 # Add error handling for missing dependencies
 try:
     from crewai import Agent
     from langchain_openai import ChatOpenAI
-    from langchain.tools import Tool
     from crewai_tools import EXASearchTool
+    from crewai.tools import tool
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print("Please ensure all dependencies are installed:")
@@ -53,35 +54,41 @@ class CustomEXASearchTool(EXASearchTool):
             type='neural',
             use_autoprompt=True,
             category='company',
-            startPublishedDate='2023-01-01T00:00:00.000Z',
+            startPublishedDate='2023-01-01',
             excludeText=[
                 'overall AI market', 'general AI industry', 'AI market size globally'
             ],
             numResults=25
         )
 
+    def _before_run(self, query, **kwargs):
+        if 'include_domains' in kwargs and not isinstance(kwargs['include_domains'], list):
+            kwargs['include_domains'] = None
+        
+        for date_field in ['start_published_date', 'end_published_date']:
+            if date_field in kwargs and kwargs[date_field]:
+                try:
+                    datetime.strptime(kwargs[date_field], '%Y-%m-%d')
+                except (ValueError, TypeError):
+                     kwargs[date_field] = None
+
+        return query, kwargs
+
 exa_search_tool = CustomEXASearchTool()
 
-# Market Size tool
-def estimate_market_size(data: str) -> str:
+# Market Size tool using CrewAI tool decorator
+from crewai.tools import tool
+
+@tool("Market Size Estimator")
+def market_size_tool(data: str) -> str:
+    """Estimates market size based on provided data."""
     return f"Estimated market size based on: {data}"
 
-market_size_tool = Tool(
-    name="Market Size Estimator",
-    func=estimate_market_size,
-    description="Estimates market size based on provided data."
-)
-
-# CAGR calculator tool
-def calculate_cagr(initial_value: float, final_value: float, num_years: int) -> float:
+@tool("CAGR Calculator")
+def cagr_tool(initial_value: float, final_value: float, num_years: int) -> float:
+    """Calculates CAGR given initial value, final value, and number of years."""
     cagr = (final_value / initial_value) ** (1 / num_years) - 1
     return cagr
-
-cagr_tool = Tool(
-    name="CAGR Calculator",
-    func=calculate_cagr,
-    description="Calculates CAGR given initial value, final value, and number of years."
-)
 
 # Agents
 def create_agent(role, goal, backstory, tools, trace_id=None, agent_name=None):
