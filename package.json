@@ -15,6 +15,7 @@
     "@google-cloud/storage": "^7.15.0",
     "@google-cloud/vision": "^4.3.0",
     "@vercel/blob": "^0.23.4",
+    "googleapis": "^144.0.0",
     "axios": "^1.7.7",
     "bluebird": "^3.7.2",
     "bootstrap": "^5.3.3",

@@ -23,6 +23,24 @@ const FileUpload = ({ documents, setDocuments }) => {
 
   const handleFileSelection = (files) => {
     const fileArray = Array.from(files);
+    const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8MB per file
+    const MAX_TOTAL_SIZE = 15 * 1024 * 1024; // 15MB total
+    
+    // Check individual file sizes
+    const oversizedFiles = fileArray.filter(file => file.size > MAX_FILE_SIZE);
+    if (oversizedFiles.length > 0) {
+      alert(`Files too large: ${oversizedFiles.map(f => f.name).join(', ')}. Maximum 8MB per file.`);
+      return;
+    }
+    
+    // Check total size
+    const currentSize = uploadedFiles.reduce((sum, f) => sum + f.size, 0);
+    const newSize = fileArray.reduce((sum, f) => sum + f.size, 0);
+    if (currentSize + newSize > MAX_TOTAL_SIZE) {
+      alert('Total file size would exceed 15MB limit. Please upload fewer or smaller files.');
+      return;
+    }
+    
     const processedFiles = fileArray.map(file => ({
       file,
       id: Math.random().toString(36).substr(2, 9),
@@ -95,7 +113,8 @@ const FileUpload = ({ documents, setDocuments }) => {
           <div className="upload-icon">📁</div>
           <p className="drop-text">
             Drop your files here or 
-            <label htmlFor="file-input" className="browse-link"> browse</label>
+            <br/>
+            <label htmlFor="file-input" className="browse-link">browse your files</label>
           </p>
           <p className="file-types">Supports PDF, DOCX, Images (JPG, PNG, GIF)</p>
           <input

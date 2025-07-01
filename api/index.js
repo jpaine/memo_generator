@@ -15,10 +15,14 @@ const vision = require("@google-cloud/vision");
 const { spawn } = require("child_process");
 const cors = require("cors");
 const crypto = require("crypto");
+const GoogleDriveService = require('./googleDriveService');
 const { uploadToBlob, deleteFromBlob } = require('./blobStorage');
 const Portkey = require("portkey-ai").default;
 const portkey = new Portkey({ apiKey: process.env.PORTKEY_API_KEY });
 const {Storage} = require('@google-cloud/storage');
+
+// Initialize Google Drive service
+const driveService = new GoogleDriveService();
 
 // Context Management System
 class ContextManager {
@@ -254,12 +258,16 @@ const storage = new Storage({
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 const upload = multer({
   dest: "/tmp/uploads/",
   limits: {
-    fileSize: 40 * 1024 * 1024, // 40MB limit per file
-    files: 5 // Reduce max files
+    fileSize: 10 * 1024 * 1024, // 10MB limit per file
+    files: 3, // Reduce max files
+    fieldSize: 1024 * 1024, // 1MB field size
+    fieldNameSize: 100,
+    fields: 20
   }
 });
 
@@ -468,11 +476,10 @@ async function getLinkedInProfile(url) {
   }
 }
 
-// Helper function to process OCR documents with timeout protection
+// Helper function to process OCR documents with Google Drive upload
 async function processOCRDocuments(files) {
   let extractedText = "";
-  const storage = new Storage();
-  const bucketName = 'memo-generator';
+  const uploadedFiles = [];
   const MAX_OCR_TIME = 90000; // 1.5 minutes max for OCR
 
   for (const file of files) {
@@ -480,8 +487,17 @@ async function processOCRDocuments(files) {
       try {
         console.log(`Processing OCR for file: ${file.originalname}`);
 
-        // Wrap OCR processing with timeout
-        const ocrPromise = processSinglePDFOCR(file, storage, bucketName);
+        // Read file and upload to Google Drive
+        const fileBuffer = await fs.readFile(file.path);
+        const driveFile = await driveService.uploadFile(
+          fileBuffer, 
+          file.originalname, 
+          file.mimetype
+        );
+        uploadedFiles.push(driveFile);
+
+        // Use Google Drive file for OCR
+        const ocrPromise = processSinglePDFOCRFromDrive(driveFile.id);
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('OCR timeout')), MAX_OCR_TIME)
         );
@@ -491,11 +507,10 @@ async function processOCRDocuments(files) {
 
         console.log(`Successfully processed file: ${file.originalname}`);
       } catch (error) {
-        console.error("Error processing PDF with Google Cloud Vision:", error);
-        // Continue with other files instead of failing completely
+        console.error("Error processing PDF with OCR:", error);
         extractedText += `[OCR Error for ${file.originalname}: ${error.message}]\n\n`;
       } finally {
-        // Clean up the uploaded file from local storage
+        // Clean up local file
         await fs.unlink(file.path).catch(console.error);
       }
     } else {
@@ -504,28 +519,25 @@ async function processOCRDocuments(files) {
     }
   }
 
+  // Clean up uploaded files from Google Drive after processing
+  for (const driveFile of uploadedFiles) {
+    await driveService.deleteFile(driveFile.id);
+  }
+
   return extractedText;
 }
 
-// Separate function for single PDF OCR processing
-async function processSinglePDFOCR(file, storage, bucketName) {
-  const gcsFileName = `temp-uploads/${Date.now()}-${file.originalname}`;
-  const bucket = storage.bucket(bucketName);
-  const blob = bucket.file(gcsFileName);
-
+// Process single PDF OCR using Google Drive file
+async function processSinglePDFOCRFromDrive(driveFileId) {
   try {
-    // Read file and upload to GCS
-    const fileContent = await fs.readFile(file.path);
-    await blob.save(fileContent);
-
-    // Use synchronous OCR for smaller files (faster)
-    const gcsSourceUri = `gs://${bucketName}/${gcsFileName}`;
+    // Download file from Google Drive
+    const fileBuffer = await driveService.downloadFile(driveFileId);
     
-    // Try synchronous detection first (much faster)
+    // Use Vision API directly with buffer
     const request = {
       requests: [{
         inputConfig: {
-          gcsSource: { uri: gcsSourceUri },
+          content: fileBuffer.toString('base64'),
           mimeType: "application/pdf"
         },
         features: [{ type: "DOCUMENT_TEXT_DETECTION" }]
@@ -544,9 +556,9 @@ async function processSinglePDFOCR(file, storage, bucketName) {
     }
 
     return extractedText;
-  } finally {
-    // Cleanup
-    await blob.delete().catch(console.error);
+  } catch (error) {
+    console.error("Error in OCR processing:", error);
+    throw error;
   }
 }
 
@@ -581,15 +593,25 @@ app.post("/api/upload", upload.fields([
 ]), (error, req, res, next) => {
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        error: "File too large. Maximum size is 40MB per file."
+      return res.status(413).json({
+        error: "File too large. Maximum size is 10MB per file."
       });
     }
     if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({
-        error: "Too many files. Maximum is 5 files."
+      return res.status(413).json({
+        error: "Too many files. Maximum is 3 files."
       });
     }
+    if (error.code === 'LIMIT_FIELD_VALUE') {
+      return res.status(413).json({
+        error: "Request too large. Try uploading fewer or smaller files."
+      });
+    }
+  }
+  if (error.code === 'LIMIT_FILE_SIZE' || error.status === 413) {
+    return res.status(413).json({
+      error: "Request payload too large. Try smaller files or fewer URLs."
+    });
   }
   next(error);
 }, async (req, res) => {
