@@ -758,6 +758,19 @@ app.post("/api/upload", upload.fields([
     const files = req.files["documents"] || [];
     const ocrFiles = req.files["ocrDocuments"] || [];
 
+    // Validate that we have at least some content to process
+    const hasFiles = files.length > 0 || ocrFiles.length > 0;
+    const hasUrls = req.body['urls[]'] && Array.isArray(req.body['urls[]']) ? req.body['urls[]'].length > 0 : false;
+    const hasLinkedIn = req.body.linkedInUrls && req.body.linkedInUrls.length > 0;
+
+    if (!hasFiles && !hasUrls && !hasLinkedIn) {
+      clearTimeout(timeoutWarning);
+      return res.status(400).json({
+        error: "No content provided",
+        details: "Please upload at least one document, provide a URL, or include LinkedIn profiles to analyze."
+      });
+    }
+
     // Extract fields from req.body
     const {
       email,
@@ -805,15 +818,69 @@ app.post("/api/upload", upload.fields([
 
     // Process regular documents
     for (const file of files) {
-      const fileBuffer = await fs.readFile(file.path);
-      if (file.mimetype === "application/pdf") {
-        const pdfData = await pdf(fileBuffer);
-        extractedText += pdfData.text + "\n\n";
-      } else if (file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-        const result = await mammoth.extractRawText({ buffer: fileBuffer });
-        extractedText += result.value + "\n\n";
+      try {
+        // Validate file exists and has content
+        if (!file.path || !file.size || file.size === 0) {
+          console.warn(`Skipping empty or invalid file: ${file.originalname || 'unknown'}`);
+          continue;
+        }
+
+        const fileBuffer = await fs.readFile(file.path);
+        
+        // Additional validation for empty buffers
+        if (!fileBuffer || fileBuffer.length === 0) {
+          console.warn(`Skipping file with empty buffer: ${file.originalname || 'unknown'}`);
+          continue;
+        }
+
+        if (file.mimetype === "application/pdf") {
+          try {
+            // Check if buffer starts with PDF header
+            const pdfHeader = fileBuffer.slice(0, 4).toString();
+            if (pdfHeader !== '%PDF') {
+              console.warn(`File ${file.originalname || 'unknown'} is not a valid PDF (missing header)`);
+              continue;
+            }
+            
+            const pdfData = await pdf(fileBuffer);
+            if (pdfData && pdfData.text && pdfData.text.trim().length > 0) {
+              extractedText += pdfData.text + "\n\n";
+            } else {
+              console.warn(`PDF parsing returned no text: ${file.originalname || 'unknown'}`);
+            }
+          } catch (pdfError) {
+            console.error(`PDF parsing failed for ${file.originalname || 'unknown'}:`, pdfError.message);
+            if (pdfError.message.includes('stream must have data')) {
+              console.warn(`PDF file ${file.originalname || 'unknown'} appears to be corrupted or empty`);
+            }
+            // Continue processing other files instead of failing completely
+          }
+        } else if (file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+          try {
+            const result = await mammoth.extractRawText({ buffer: fileBuffer });
+            if (result && result.value) {
+              extractedText += result.value + "\n\n";
+            } else {
+              console.warn(`DOCX parsing returned no text: ${file.originalname || 'unknown'}`);
+            }
+          } catch (docxError) {
+            console.error(`DOCX parsing failed for ${file.originalname || 'unknown'}:`, docxError.message);
+            // Continue processing other files instead of failing completely
+          }
+        }
+      } catch (fileError) {
+        console.error(`Error processing file ${file.originalname || 'unknown'}:`, fileError.message);
+        // Continue processing other files
+      } finally {
+        // Always cleanup file regardless of processing success/failure
+        try {
+          if (file.path) {
+            await fs.unlink(file.path);
+          }
+        } catch (unlinkError) {
+          console.warn(`Failed to cleanup file ${file.path}:`, unlinkError.message);
+        }
       }
-      await fs.unlink(file.path);
     }
 
     // No need to cleanup uploaded blobs since we're not using them anymore
@@ -865,10 +932,18 @@ app.post("/api/upload", upload.fields([
 
     console.log("Extracted text length:", extractedText.length);
 
-    if (extractedText.length === 0) {
+    // Enhanced validation for extracted content
+    if (extractedText.length === 0 && !hasUrls && !hasLinkedIn) {
+      clearTimeout(timeoutWarning);
       return res.status(400).json({
-        error: "No text could be extracted from the uploaded files or URL. Please check the inputs and try again.",
+        error: "No readable content found",
+        details: "The uploaded files appear to be empty or corrupted. Please check your files and try again. Supported formats: PDF and DOCX.",
       });
+    }
+
+    // If we only have minimal content from files but have other sources, continue
+    if (extractedText.length < 50 && (hasUrls || hasLinkedIn)) {
+      console.warn("Minimal text extracted from files, but continuing with URL/LinkedIn content");
     }
 
     // Fetch and process LinkedIn data (with parallel processing and timeout)
@@ -958,7 +1033,7 @@ app.post("/api/upload", upload.fields([
     const fullMemoSpanId = crypto.randomUUID();
     const completion = await Promise.race([
       openai.chat.completions.create({
-        model: "gpt-4o", // Changed from o1-mini for faster generation
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
@@ -990,8 +1065,6 @@ app.post("/api/upload", upload.fields([
     Additional Context: ${combinedText}
 
     Structure the memo with the following sections, using HTML tags for formatting:
-
-    0. <h2>Generated using Golden Gate Memo Generator</h2>
 
     1. <h2>Executive Summary</h2>
        - Include deal terms and analysis date
@@ -1061,7 +1134,7 @@ app.post("/api/upload", upload.fields([
           },
         ],
         temperature: 0.7,
-        max_tokens: 8000 // Limit output tokens for speed
+        max_tokens: 6000
       }, {
         headers: {
           'x-portkey-trace-id': traceId,

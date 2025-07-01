@@ -50,14 +50,25 @@ def run_analysis(market_opportunity, trace_id):
     )
 
     market_task = Task(
-        description=f"""Analyze the market size and expected growth rate for market of {market_opportunity} in Southeast Asia, and in the home market (USD).
-        1. Estimate the total market size and growth rate (CAGR). Avoid taking the overall size of the AI market and randomly assuming a percentage of that market goes towards the subsegment market; instead, search for data on the specific subsegment data directly.
-        2. Estimate the total number of potential customers in the target market.
-        Provide a concise report with clear data points and sources.""",
-        expected_output="""A detailed market analysis report including:
-        1. Total market size with CAGR
-        2. Total number of potential customers
-        All with supporting data and sources links.""",
+        description=f"""Research TAM and growth rate for {market_opportunity} subsegment in US and Southeast Asia.
+        
+        Methodology:
+        1. Find industry-specific market research (not generic AI market data)
+        2. Search for company earnings calls mentioning market size
+        3. Look for vertical trade associations with market data
+        4. Calculate bottom-up TAM from customer segments and pricing
+        
+        Deliverables:
+        - Current market size in USD with specific year
+        - 5-year CAGR with supporting data points
+        - Number of potential enterprise customers by segment
+        - Geographic breakdown (US vs SEA markets)""",
+        expected_output="""Market analysis with:
+        1. TAM in USD with calculation methodology
+        2. CAGR with 3+ data points supporting the trend
+        3. Customer count by segment (enterprise, mid-market, SMB)
+        4. Geographic market size breakdown
+        5. Data sources and confidence level""",
         agent=market_analyst,
         async_execution=False
     )
@@ -70,19 +81,26 @@ def run_analysis(market_opportunity, trace_id):
     )
 
     regionalinvestment_task = Task(
-        description=f"Identify and summarize key risks of investing in the sector of {market_opportunity} in the US and Southeast Asia. Consider regulatory barriers, political risk, adoption rate, and competitive dynamics.",
-        expected_output="""A summary of region-specific investment risks including:
-        1. Regional investment consideration in US:
-            - IRS tax credit impacts
-            - State-level opportunity analysis (CA, TX, FL)
-            - DOE loan program analysis
-            - Utility partnership strategies
-        2. Regional investment consideration in South East Asia
-            - ASEAN cross-border financing challenges
-            - Singapore/Vietnam/Indonesia market comparison
-            - Local regulatory compliance strategies
-            - Microgrid development opportunities
-            - Regional development bank partnerships""",
+        description=f"""Analyze regulatory and market entry risks for {market_opportunity} in US and Southeast Asia.
+        
+        US Analysis:
+        - Federal regulations (FDA, FTC, SEC) specific to this sector
+        - State-level variations (CA privacy laws, TX energy regs, etc.)
+        - Tax incentives (R&D credits, manufacturing incentives)
+        
+        SEA Analysis:
+        - Singapore: MAS fintech regs, Smart Nation initiatives
+        - Indonesia: Digital economy regulations, local partnership requirements  
+        - Vietnam: Foreign investment caps, technology transfer requirements
+        - Thailand: BOI investment incentives, data localization
+        
+        Provide specific regulatory hurdles and compliance costs.""",
+        expected_output="""Regional risk assessment with:
+        1. Specific regulations by jurisdiction with compliance requirements
+        2. Compliance timeline and estimated costs
+        3. Market entry barriers and partnership requirements
+        4. Available investment incentives and tax benefits
+        5. Regulatory risk rating (1-5) for each region""",
         agent=regional_analyst,
         async_execution=False
     )
@@ -111,8 +129,34 @@ def run_analysis(market_opportunity, trace_id):
     )
 
     decision_task = Task(
-        description="Make a final investment recommendation (Invest / Hold / Pass) based on previous analyses: market size, competitor landscape, timing, and risks.",
-        expected_output="Final investment decision with rationale.",
+        description="""Apply VC investment framework to synthesize all analyses:
+        
+        Market Criteria (Weight: 40%):
+        - TAM >$10B and growing >20% CAGR = Strong
+        - TAM $5-10B and growing >15% CAGR = Moderate  
+        - TAM <$5B or growth <15% CAGR = Weak
+        
+        Timing Criteria (Weight: 25%):
+        - Adoption inflection point with regulatory tailwinds = Strong
+        - Early adoption phase with some market validation = Moderate
+        - Too early or saturated market = Weak
+        
+        Competition Criteria (Weight: 25%):
+        - Clear differentiation with IP protection = Strong
+        - Some differentiation, competitive advantages = Moderate
+        - Commoditized market with weak moats = Weak
+        
+        Risk Criteria (Weight: 10%):
+        - Low regulatory/execution risk = Strong
+        - Moderate regulatory/execution risk = Moderate
+        - High regulatory/execution risk = Weak
+        
+        Final Decision: Invest (3+ Strong criteria), Hold (2 Strong + others Moderate), Pass (otherwise)""",
+        expected_output="""Investment recommendation with:
+        1. Scoring breakdown by criteria (Market, Timing, Competition, Risk)
+        2. Final decision: INVEST / HOLD / PASS
+        3. Key supporting rationale (2-3 sentences)
+        4. Deal-breaker risks or catalysts""",
         agent=decision_analyst,
         async_execution=False
     )

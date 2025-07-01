@@ -42,7 +42,7 @@ def get_portkey_llm(trace_id=None, span_id=None, agent_name=None):
     else:
         # Fallback to direct OpenAI usage
         return ChatOpenAI(
-            model="gpt-4",
+            model="gpt-4o",
             api_key=os.getenv("OPENAI_API_KEY")
         )
 
@@ -53,12 +53,11 @@ class CustomEXASearchTool(EXASearchTool):
             type='neural',
             use_autoprompt=True,
             category='company',
-            startPublishedDate='2021-10-01T00:00:00.000Z',
+            startPublishedDate='2023-01-01T00:00:00.000Z',
             excludeText=[
-                'OpenAI', 'Anthropic', 'Google', 'Mistral', 'Microsoft', 'Nvidia', 
-                'general AI market', 'overall AI industry', 'IBM', 'Mistral'
+                'overall AI market', 'general AI industry', 'AI market size globally'
             ],
-            numResults=20
+            numResults=25
         )
 
 exa_search_tool = CustomEXASearchTool()
@@ -113,9 +112,14 @@ def get_industry_analyst(trace_id=None):
 
 def get_market_analyst(trace_id=None):
     return create_agent(
-        role='Market size Research Analyst',
-        goal='Research and analyze the market size TAM of AI subsegment markets focusing on specialized market sizes and growth rates',
-        backstory='Expert in doing research and calculating the market size TAM of specific subsegments of the AI market, and growth rates. Also search for sector-specific growth drivers. Known for providing granular market insights rather than general AI market statistics like the overall size of AI market which is irrelevant.',
+        role='Market Size Research Analyst',
+        goal='Research TAM for specific subsegment. Find actual revenue data, not AI market percentages.',
+        backstory='''Expert at finding granular subsegment market data through:
+        - Industry association reports (e.g., SEMI for semiconductors, BioWorld for biotech)
+        - Vertical-specific research firms (Gartner for specific tech, IDC for enterprise)
+        - Company earnings calls and SEC filings for market size validation
+        - Trade publication databases
+        Avoids generic "AI market is $X trillion" approaches.''',
         tools=[exa_search_tool, market_size_tool, cagr_tool],
         trace_id=trace_id,
         agent_name='market_analyst'
@@ -144,10 +148,15 @@ def get_regional_analyst(trace_id=None):
 
 def get_competitor_analyst(trace_id=None):
     return create_agent(
-        role='AI Startup Intelligence Specialist',
-        goal='Identify and analyze relevant AI startups within specific AI subsegment markets',
-        backstory="""Expert in mapping competitive landscapes for specific AI verticals. 
-        Specialized in identifying real, named emerging startups and scale-ups rather than tech giants like IBM, OpenAI, Google, META, Anthropic, HuggingFace. Known for finding verifiable information about startups' funding, technology, and market focus.""",
+        role='Startup Competitive Intelligence Specialist',
+        goal='Map 5+ early-stage competitors with funding details, founding teams, and technology differentiation',
+        backstory="""Specialist in pre-IPO competitive landscapes. Tracks:
+        - Seed/Series A-C startups via Crunchbase, PitchBook queries
+        - Technical differentiation through patent filings, research papers
+        - Team backgrounds via LinkedIn, academic publications
+        - Product positioning through company blogs, case studies
+        - Funding momentum and investor quality assessment
+        Focuses on actionable competitive intelligence, not market overviews.""",
         tools=[exa_search_tool],
         trace_id=trace_id,
         agent_name='competitor_analyst'
@@ -155,9 +164,14 @@ def get_competitor_analyst(trace_id=None):
 
 def get_strategy_advisor(trace_id=None):
     return create_agent(
-        role='Project Manager',
-        goal='Efficiently manage the crew and ensure high-quality task completion with a focus on ensuring that the results are very specific and relevant and not generic and too zoom out',
-        backstory="""You're an experienced project manager, skilled in overseeing complex projects and guiding teams to success. Your role is to coordinate the efforts of the crew members, ensuring that each task is completed on time and that the results are relevant and specific to the market.""",
+        role='Research Quality Controller',
+        goal='Ensure each analysis delivers specific, actionable data. Reject generic market overviews and demand granular findings.',
+        backstory="""Quality controller who rejects surface-level analysis:
+        - Market sizing: Demands bottom-up calculations, not top-down percentages
+        - Competitive intel: Requires named companies with specific metrics
+        - Timing: Needs evidence-based inflection points, not trends
+        - Regional: Wants regulatory specifics, not general market conditions
+        Iterates until each output has actionable specificity.""",
         tools=[],
         trace_id=trace_id,
         agent_name='strategy_advisor'
@@ -165,9 +179,14 @@ def get_strategy_advisor(trace_id=None):
 
 def get_decision_analyst(trace_id=None):
     return create_agent(
-        role='Investment Decision Advisor',
-        goal='Provide a final investment recommendation based on market, competitor, timing, and risk analysis. Give a clear "Invest / Hold / Pass" decision.',
-        backstory='You are a senior VC decision maker, experienced in synthesizing multiple types of due diligence into concise investment recommendations.',
+        role='VC Investment Decision Framework Specialist',
+        goal='Apply systematic investment criteria: market size (>$10B TAM), timing (adoption inflection), competitive moat, execution risk',
+        backstory='''Senior VC partner with decision framework:
+        - Market: TAM >$10B, growing >20% CAGR, timing at adoption inflection
+        - Competition: Defensible moat, 2+ year lead time, IP protection
+        - Team: Domain expertise, execution track record, market timing
+        - Risk: Technical feasibility, regulatory clarity, capital efficiency
+        Outputs: Invest (all criteria met), Hold (2-3 criteria), Pass (<2 criteria)''',
         tools=[],
         trace_id=trace_id,
         agent_name='decision_analyst'

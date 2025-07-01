@@ -2,13 +2,10 @@ services:
   - type: web
     name: memo-generator-backend
     env: node
-    plan: starter
     buildCommand: |
-      npm install &&
-      python3 -m pip install --user -r requirements.txt
+      npm install
+      pip3 install -r requirements.txt
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
-    autoDeploy: true
-    rootDir: backend

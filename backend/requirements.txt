@@ -2,11 +2,5 @@ crewai==0.83.1
 crewai-tools==0.20.0
 langchain==0.3.14
 langchain-openai==0.2.14
-langchain-community==0.3.13
-Requests==2.32.3
-setuptools==72.1.0
-typing_extensions==4.12.2
 python-dotenv==1.0.1
-portkey-ai==1.13.3
-pydantic==2.10.4
-pydantic-core==2.27.2
+portkey-ai==1.8.2
