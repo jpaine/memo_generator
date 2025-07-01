@@ -434,7 +434,7 @@ async function getLinkedInProfile(url) {
 
   try {
     const response = await axios.get(
-      "https://nubela.co/proxycurl/api/v2/linkedin",
+      "https://enrichlayer.com/api/v2/profile",
       {
         params: {
           url: url,
