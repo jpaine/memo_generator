@@ -1,5 +1,5 @@
-# Use Node.js 18 base image with Python support
-FROM node:18-bullseye
+# Use Node.js 20 base image with Python 3.11+ support
+FROM node:20-bookworm
 
 # Install Python, pip, and system dependencies including Chrome for PDF generation
 RUN apt-get update && apt-get install -y \
@@ -45,7 +45,7 @@ COPY package*.json ./
 COPY requirements.txt ./
 
 # Install Node.js dependencies
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 # Install Python dependencies with explicit upgrade
 RUN pip3 install --upgrade pip setuptools wheel
