@@ -28,8 +28,6 @@ function App() {
   const [moderationDetails, setModerationDetails] = useState(null);
   const [showDownload, setShowDownload] = useState(false);
   const [traceId, setTraceId] = useState("");
-  const [showFeedback, setShowFeedback] = useState(false);
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [urls, setUrls] = useState([]);
 
   // Handle form submission
@@ -90,8 +88,6 @@ function App() {
     setError("");
     setModerationDetails(null);
     setTraceId("");
-    setShowFeedback(false);
-    setFeedbackSubmitted(false);
 
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -107,7 +103,6 @@ function App() {
       setResult(response.data.memorandum);
       setShowDownload(true);
       setTraceId(response.data.traceId);
-      setShowFeedback(true);
     } catch (error) {
       console.error("Error:", error);
 
@@ -125,26 +120,11 @@ function App() {
     }
   };
 
-  // Handle feedback submission
-  const sendFeedback = async (value) => {
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      await axios.post(`${API_URL}/api/feedback`, {
-        traceId: traceId,
-        value: value,
-      });
-      setShowFeedback(false);
-      setFeedbackSubmitted(true);
-    } catch (error) {
-      console.error("Feedback error:", error);
-      alert("An error occurred while submitting feedback.");
-    }
-  };
-
   // Handle memorandum download
   const handleDownload = async () => {
     try {
-      const response = await fetch("/api/download", {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${API_URL}/api/download`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -289,31 +269,6 @@ function App() {
               handleDownload={handleDownload}
             />
 
-            {/* Feedback Section */}
-            {showFeedback && !feedbackSubmitted && (
-              <div className="feedback-section">
-                <h3>Please provide your feedback:</h3>
-                <button
-                  className="btn btn-success"
-                  style={{ marginRight: "10px" }}
-                  onClick={() => sendFeedback(1)}
-                >
-                  👍
-                </button>
-                <button
-                  className="btn btn-danger"
-                  onClick={() => sendFeedback(-1)}
-                >
-                  👎
-                </button>
-              </div>
-            )}
-
-            {feedbackSubmitted && (
-              <div className="feedback-section">
-                <h3>Thank you for your feedback!</h3>
-              </div>
-            )}
           </div>
         )}
       </div>

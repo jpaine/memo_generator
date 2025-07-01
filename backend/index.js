@@ -284,6 +284,23 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Serve static files for favicon and icons
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Handle missing favicon and touch icons
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.svg'));
+});
+
+app.get('/apple-touch-icon.png', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.svg'));
+});
+
+app.get('/apple-touch-icon-precomposed.png', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.svg'));
+});
+
 const upload = multer({
   dest: "/tmp/uploads/",
   limits: {
@@ -414,8 +431,19 @@ Output format:
 // Function to run the Python script for market analysis
 async function runMarketAnalysis(marketOpportunity, traceId) {
   return new Promise((resolve, reject) => {
-    const pythonProcess = spawn("python", ["main.py", marketOpportunity, traceId]);
+    // Use python3 explicitly and add timeout
+    const pythonProcess = spawn("python3", ["main.py", marketOpportunity, traceId], {
+      cwd: __dirname,
+      env: {
+        ...process.env,
+        PYTHONPATH: __dirname,
+        PYTHONUNBUFFERED: '1'
+      },
+      timeout: 120000 // 2 minute timeout
+    });
+    
     let result = "";
+    let errorOutput = "";
 
     pythonProcess.stdout.on("data", (data) => {
       const output = data.toString();
@@ -424,13 +452,24 @@ async function runMarketAnalysis(marketOpportunity, traceId) {
     });
 
     pythonProcess.stderr.on("data", (data) => {
-      console.error("Python script error:", data.toString());
+      const error = data.toString();
+      console.error("Python script error:", error);
+      errorOutput += error;
     });
 
     pythonProcess.on("close", (code) => {
       if (code !== 0) {
         console.error(`Python script exited with code ${code}`);
-        reject(`Python script exited with code ${code}`);
+        console.error("Error output:", errorOutput);
+        
+        // Provide more specific error messages
+        if (errorOutput.includes("ModuleNotFoundError: No module named 'crewai'")) {
+          reject("CrewAI module not installed. Please check Python environment setup.");
+        } else if (errorOutput.includes("ImportError")) {
+          reject("Missing Python dependencies. Please check requirements.txt installation.");
+        } else {
+          reject(`Python script exited with code ${code}: ${errorOutput}`);
+        }
       } else {
         try {
           const jsonStart = result.lastIndexOf("{");
@@ -441,13 +480,29 @@ async function runMarketAnalysis(marketOpportunity, traceId) {
             );
             resolve(jsonResult);
           } else {
-            throw new Error("No valid JSON found in the output");
+            console.warn("No valid JSON found in Python output, returning partial result");
+            resolve({ 
+              industry_analysis: "Analysis incomplete - Python script output parsing failed",
+              market_analysis: "Market analysis unavailable", 
+              error: "Failed to parse Python script output",
+              raw_output: result 
+            });
           }
         } catch (error) {
           console.error("Error parsing JSON:", error);
-          resolve({ error: "Failed to parse Python script output" });
+          resolve({ 
+            industry_analysis: "Analysis incomplete - JSON parsing failed",
+            market_analysis: "Market analysis unavailable",
+            error: "Failed to parse Python script output",
+            raw_output: result 
+          });
         }
       }
+    });
+
+    pythonProcess.on("error", (error) => {
+      console.error("Failed to start Python process:", error);
+      reject(`Failed to start Python process: ${error.message}`);
     });
   });
 }
@@ -463,24 +518,76 @@ async function getLinkedInProfile(url) {
   console.log("Fetching LinkedIn profile for URL:", url);
 
   try {
-    const response = await axios.get(
-      "https://enrichlayer.com/api/v2/profile",
-      {
-        params: {
-          url: url,
-          use_cache: "if-present",
-        },
-        headers: {
-          Authorization: "Bearer " + process.env.PROXYCURL_API_KEY,
-        },
+    // Try multiple approaches for LinkedIn data
+    const approaches = [
+      // Approach 1: Enrichlayer (current)
+      async () => {
+        const response = await axios.get(
+          "https://enrichlayer.com/api/v2/profile",
+          {
+            params: {
+              url: url,
+              use_cache: "if-present",
+            },
+            headers: {
+              Authorization: "Bearer " + process.env.PROXYCURL_API_KEY,
+            },
+            timeout: 10000
+          },
+        );
+        return response.data;
       },
-    );
-    return response.data;
+      // Approach 2: Basic web scraping (fallback)
+      async () => {
+        const response = await axios.get(url, {
+          timeout: 8000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; MemoGenerator/1.0)'
+          }
+        });
+        const $ = cheerio.load(response.data);
+        
+        // Extract basic info from public LinkedIn page
+        const name = $('h1').first().text().trim() || 'Name not available';
+        const headline = $('.text-body-medium.break-words').first().text().trim() || 'Headline not available';
+        
+        return {
+          full_name: name,
+          occupation: headline,
+          summary: 'Summary not available - extracted from public LinkedIn page',
+          experiences: [],
+          education: [],
+          skills: [],
+          linkedin_url: url
+        };
+      }
+    ];
+
+    // Try each approach
+    for (const approach of approaches) {
+      try {
+        const result = await approach();
+        if (result && !result.error) {
+          return result;
+        }
+      } catch (error) {
+        console.log(`LinkedIn fetch approach failed:`, error.message);
+        continue;
+      }
+    }
+
+    // If all approaches fail, return basic structure
+    return {
+      error: "Unable to fetch LinkedIn profile data. Please ensure the URL is accessible and try again.",
+      linkedin_url: url
+    };
+
   } catch (error) {
     console.error(
       "Error fetching LinkedIn profile:",
       error.response ? error.response.data : error.message,
     );
+    
     if (error.response && error.response.status === 404) {
       return {
         error:
@@ -493,7 +600,8 @@ async function getLinkedInProfile(url) {
       };
     }
     return {
-      error: "Unable to fetch LinkedIn profile data. Please try again later.",
+      error: `Unable to fetch LinkedIn profile data: ${error.message}`,
+      linkedin_url: url
     };
   }
 }
@@ -1020,27 +1128,6 @@ app.post("/api/download", express.json(), async (req, res) => {
     res
       .status(500)
       .json({ error: "An error occurred while generating the Word document." });
-  }
-});
-
-// Feedback endpoint
-app.post("/api/feedback", async (req, res) => {
-  const { traceId, value } = req.body;
-
-  try {
-    await portkey.feedback.create({
-      traceID: traceId,
-      value: value,
-      weight: 1,
-      metadata: {},
-    });
-
-    res.status(200).json({ message: "Feedback submitted successfully" });
-  } catch (error) {
-    console.error("Error submitting feedback:", error);
-    res
-      .status(500)
-      .json({ error: "An error occurred while submitting feedback." });
   }
 });
 

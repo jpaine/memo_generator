@@ -1,8 +1,17 @@
 import os
-from crewai import Agent
-from langchain_openai import ChatOpenAI
-from langchain.tools import Tool
-from crewai_tools import EXASearchTool
+import sys
+
+# Add error handling for missing dependencies
+try:
+    from crewai import Agent
+    from langchain_openai import ChatOpenAI
+    from langchain.tools import Tool
+    from crewai_tools import EXASearchTool
+except ImportError as e:
+    print(f"Error importing required modules: {e}")
+    print("Please ensure all dependencies are installed:")
+    print("pip install crewai crewai-tools langchain langchain-openai")
+    sys.exit(1)
 
 #Portkey, fallback to direct OpenAI if not available
 try:

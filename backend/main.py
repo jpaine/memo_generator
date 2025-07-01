@@ -1,8 +1,24 @@
 import sys
 import json
-from crewai import Crew, Task, Process
-from dotenv import load_dotenv
-from agents import get_market_analyst, get_competitor_analyst, get_strategy_advisor, get_timing_analyst, get_regional_analyst, get_decision_analyst, get_industry_analyst
+import os
+
+# Validate environment before importing
+required_env_vars = ['OPENAI_API_KEY', 'EXA_API_KEY']
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+
+if missing_vars:
+    print(f"Error: Missing required environment variables: {', '.join(missing_vars)}")
+    sys.exit(1)
+
+try:
+    from crewai import Crew, Task, Process
+    from dotenv import load_dotenv
+    from agents import get_market_analyst, get_competitor_analyst, get_strategy_advisor, get_timing_analyst, get_regional_analyst, get_decision_analyst, get_industry_analyst
+except ImportError as e:
+    print(f"Error importing required modules: {e}")
+    print("Please ensure all dependencies are installed:")
+    print("pip install crewai==0.83.1 crewai-tools==0.20.0 langchain==0.3.14 langchain-openai==0.2.14")
+    sys.exit(1)
 
 # Load environment variables
 load_dotenv()
