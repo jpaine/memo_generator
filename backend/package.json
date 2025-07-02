@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build": "echo 'No build step required for backend'"
+    "build": "npx playwright install --with-deps chromium",
+    "postinstall": "npx playwright install --with-deps chromium"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.15.0",

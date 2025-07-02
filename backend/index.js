@@ -1341,15 +1341,22 @@ app.post("/api/download/pdf", express.json(), async (req, res) => {
       </html>
     `;
 
-    // Launch Playwright browser
+    // Launch Playwright browser with production-ready config
     browser = await chromium.launch({
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-web-security',
-        '--disable-features=VizDisplayCompositor'
+        '--disable-features=VizDisplayCompositor',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
       ]
     });
     

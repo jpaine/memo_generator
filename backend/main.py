@@ -162,14 +162,14 @@ def run_analysis(market_opportunity, trace_id):
     )
 
 
-    # Create the crew
+    # Create the crew with optimized settings
     crew = Crew(
         agents=[industry_analyst, market_analyst, competitor_analyst, timing_analyst, regional_analyst, decision_analyst],
         tasks=[industry_task, market_task, competitor_task, timing_task, regionalinvestment_task, decision_task],
-        verbose=True,
+        verbose=False,  # Reduce verbose output
         process=Process.hierarchical,
         manager_agent=strategy_advisor,
-        planning=True,
+        planning=True, 
     )
 
     print("Crew created, starting analysis...")

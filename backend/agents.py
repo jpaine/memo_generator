@@ -101,10 +101,10 @@ def create_agent(role, goal, backstory, tools, trace_id=None, agent_name=None):
         backstory=backstory,
         tools=tools,
         llm=llm,
-        verbose=True,
-        allow_delegation=True,
-        max_iter=25,
-        max_execution_time=300
+        verbose=False,  # Reduce verbose output
+        allow_delegation=False,  # Disable delegation to reduce complexity
+        max_iter=15,  # Reduce iterations for faster execution
+        max_execution_time=180  # Reduce timeout
     )
 
 def get_industry_analyst(trace_id=None):
