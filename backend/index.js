@@ -457,7 +457,7 @@ async function runMarketAnalysis(marketOpportunity, traceId) {
         PYTHONPATH: __dirname,
         PYTHONUNBUFFERED: '1'
       },
-      timeout: 120000 // 2 minute timeout
+      timeout: 300000 // 5 minute timeout
     });
     
     let result = "";
@@ -550,12 +550,28 @@ async function getLinkedInProfile(url) {
             headers: {
               Authorization: "Bearer " + process.env.PROXYCURL_API_KEY,
             },
-            timeout: 10000
+            timeout: 20000
           },
         );
         return response.data;
       },
-      // Approach 2: Basic web scraping (fallback)
+      // Approach 2: Another proxy service (fallback)
+      async () => {
+        const response = await axios.get(
+          "https://another-proxy.com/api/v1/profile", // Replace with your proxy endpoint
+          {
+            params: {
+              url: url,
+            },
+            headers: {
+              Authorization: "Bearer " + process.env.ANOTHER_PROXY_API_KEY, // Replace with your API key
+            },
+            timeout: 20000
+          },
+        );
+        return response.data;
+      },
+      // Approach 3: Basic web scraping (fallback)
       async () => {
         const response = await axios.get(url, {
           timeout: 8000,
@@ -631,7 +647,7 @@ async function processOCRDocuments(files) {
   const MAX_OCR_TIME = 90000; // 1.5 minutes max for OCR
 
   for (const file of files) {
-    if (file.mimetype === "application/pdf") {
+    if (file.mimetype === "application/pdf" || file.mimetype === "image/png" || file.mimetype === "image/jpeg") {
       try {
         console.log(`Processing OCR for file: ${file.originalname}`);
 
@@ -645,7 +661,7 @@ async function processOCRDocuments(files) {
         uploadedFiles.push(driveFile);
 
         // Use Google Drive file for OCR
-        const ocrPromise = processSinglePDFOCRFromDrive(driveFile.id);
+        const ocrPromise = processOcrFromDrive(driveFile.id, file.mimetype);
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('OCR timeout')), MAX_OCR_TIME)
         );
@@ -675,8 +691,8 @@ async function processOCRDocuments(files) {
   return extractedText;
 }
 
-// Process single PDF OCR using Google Drive file
-async function processSinglePDFOCRFromDrive(driveFileId) {
+// Process single OCR using Google Drive file
+async function processOcrFromDrive(driveFileId, mimeType) {
   try {
     // Download file from Google Drive
     const fileBuffer = await driveService.downloadFile(driveFileId);
@@ -686,7 +702,7 @@ async function processSinglePDFOCRFromDrive(driveFileId) {
       requests: [{
         inputConfig: {
           content: fileBuffer.toString('base64'),
-          mimeType: "application/pdf"
+          mimeType: mimeType
         },
         features: [{ type: "DOCUMENT_TEXT_DETECTION" }]
       }]
@@ -1057,7 +1073,7 @@ app.post("/api/upload", upload.fields([
       Promise.race([
         runMarketAnalysis(await summarizeMarketOpportunity(extractedText, traceId, marketOpportunitySpanId), traceId),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Market analysis timeout')), 45000)
+          setTimeout(() => reject(new Error('Market analysis timeout')), 300000)
         )
       ]).catch(error => {
         console.error("Market analysis failed:", error);
@@ -1341,15 +1357,22 @@ app.post("/api/download/pdf", express.json(), async (req, res) => {
       </html>
     `;
 
-    // Launch Playwright browser
+    // Launch Playwright browser with production-ready config
     browser = await chromium.launch({
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-web-security',
-        '--disable-features=VizDisplayCompositor'
+        '--disable-features=VizDisplayCompositor',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
       ]
     });
     

@@ -48,25 +48,29 @@ COPY requirements.txt ./
 # Install Node.js dependencies
 RUN npm ci --omit=dev
 
-# Install Playwright browsers
-RUN npx playwright install chromium
+# Install Playwright browsers with system dependencies before switching user
+RUN npx playwright install --with-deps chromium
 
 # Install Python dependencies with explicit upgrade
 RUN pip3 install --upgrade pip setuptools wheel --break-system-packages
 RUN pip3 install -r requirements.txt --break-system-packages
 
+# Create non-root user for security and set up home directory
+RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser
+
+# Create necessary directories and set permissions
+RUN mkdir -p /home/appuser/.cache/ms-playwright && \
+    mkdir -p /home/appuser/.npm/_logs && \
+    chown -R appuser:appuser /app /home/appuser
 # Copy application code
 COPY . .
 
-# Set Chrome/Chromium executable path for Puppeteer
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
-# Create non-root user for security and set up home directory
-RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser
-RUN chown -R appuser:appuser /app /home/appuser
-RUN mkdir -p /home/appuser/.npm/_logs && chown -R appuser:appuser /home/appuser/.npm
+# Switch to non-root user
 USER appuser
+
+# Set Chrome/Chromium executable path for Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/appuser/.cache/ms-playwright \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Expose port
 EXPOSE 3000
