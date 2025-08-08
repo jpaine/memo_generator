@@ -1,0 +1,42 @@
+# Core web framework
+fastapi
+uvicorn
+gunicorn
+
+# Database
+sqlalchemy
+alembic
+psycopg2-binary
+
+# Authentication
+auth0-python
+passlib
+python-jose
+bcrypt
+
+# AI/ML packages
+openai
+langchain
+langchain-community
+langchain-openai
+langchain-cohere
+chromadb
+embedchain
+crewai
+crewai-tools
+mem0ai
+
+# Data processing
+pandas
+numpy
+requests
+pydantic
+pydantic-settings
+
+# Utilities
+python-dotenv
+email-validator
+python-multipart
+aiofiles
+redis
+celery

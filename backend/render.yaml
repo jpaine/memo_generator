@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: memo-generator-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter  # Use starter plan for better resources
+    buildCommand: npm run build
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /home/appuser/.cache/ms-playwright
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: EXA_API_KEY
+        sync: false
+      - key: PROXYCURL_API_KEY
+        sync: false
+      - key: PORTKEY_API_KEY
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT_ID
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY
+        sync: false
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
